@@ -1,1 +1,6 @@
 *.beam
+*.elc
+config.*
+configure
+*.tar.gz
+Makefile

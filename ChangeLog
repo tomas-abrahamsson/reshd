@@ -1,0 +1,30 @@
+Jul 20 2002  Tomas Abrahamsson  <tab@lysator.liu.se>
+	Polished for submitting as an Erlang user contribution:
+	- Added reshd.pub
+	- Added README, license.txt
+	- Added autoconf stuff
+
+Dec 20 2001  Tomas Abrahamsson  <tab@lysator.liu.se>
+
+	This is version 1.1.
+
+	* reshd.erl: Handles atoms and terms as prompts (just like for the
+	normal shell).
+
+Aug 21 2001  Tomas Abrahamsson  <tab@lysator.liu.se>
+	
+	* resh.el: Bugfixes for bugs related to setting the current erlang
+	buffer
+	* reshd.erl: Handles prompt being an atom
+	
+May 11 2001  Tomas Abrahamsson  <tab@lysator.liu.se>
+
+	* resh.el: Misc bugfixes
+
+May  4 2001  Tomas Abrahamsson  <tab@lysator.liu.se>
+
+	* resh.el: First published version
+	* reshd.erl: First published version
+
+	This is the first version, also announced on the Erlang mailing list:
+	http://www.erlang.org/ml-archive/erlang-questions/200105/msg00019.html

@@ -1,0 +1,110 @@
+## This is a -*- makefile -*-
+
+# What the Emacs 19 binary is called on your system
+EMACS = @EMACS@
+# What the Erlang compiler binary is called on your system
+ERLC = @ERLC@
+
+
+
+# Prefix for constructing installation directory paths
+prefix = @prefix@
+exec_prefix = $(prefix)
+
+# Shared directory for read-only data files
+datadir = $(prefix)/share
+
+# Where to put the .el and .elc files
+lispdir=$(datadir)/emacs/site-lisp
+
+# Installation command
+INSTALL = @INSTALL@
+INSTALL_DATA = @INSTALL_DATA@
+
+# Various auxiliary programs
+tar=tar
+grep=grep
+sed=sed
+
+srcdir = @srcdir@
+VPATH = @srcdir@
+
+ELISP_SOURCES = resh.el
+ELISP_OBJECTS = resh.elc
+
+ERLANG_SOURCES = reshd.erl
+ERLANG_OBJECTS = reshd.beam
+
+SOURCES = $(ERLANG_SOURCES) $(ELISP_SOURCES)
+OBJECTS = $(ERLANG_OBJECTS) $(ELISP_OBJECTS)
+
+DISTFILES = $(SOURCES) reshd.pub README license.txt \
+        Makefile.in configure configure.in load-path.hack \
+	mkinstalldirs
+
+SHELL = /bin/sh
+#.PHONY: all clean dist distclean install \
+#	installdirs ps uninstall
+.SUFFIXES:
+.SUFFIXES: .elc .el .beam .erl
+
+.el.elc:
+	$(EMACS) -batch -l $(srcdir)/load-path.hack \
+	  -f batch-byte-compile $<
+
+.erl.beam:
+	$(ERLC) $<
+
+all: $(OBJECTS)
+
+install: all installdirs
+	for f in $(ELISP_SOURCES); do \
+	  $(INSTALL_DATA) $(srcdir)/$$f $(lispdir); \
+	done;
+	for f in $(ELISP_OBJECTS); do \
+	  $(INSTALL_DATA) $$f $(lispdir); \
+	done;
+
+# Make sure all installation directories actually exist
+# by making them if necessary.
+installdirs: mkinstalldirs
+	$(srcdir)/mkinstalldirs $(lispdir)
+
+uninstall:
+	-cd $(lispdir) && rm -f $(ELISP_SOURCES) $(ELISP_OBJECTS)
+
+TAGS: $(SOURCES)
+	cd $(srcdir) && etags $(SOURCES)
+
+clean:
+	rm -f $(OBJECTS)
+	-rm -f *.aux *.cp *.cps *.fn *.ky *.log *.pg *.toc *.tp *.vr
+	-rm -f *.html
+	rm -f TAGS
+	rm -f erl_crash.dump
+
+distclean: clean
+	-rm -f *~ *.tar.gz
+	rm -f Makefile config.status config.cache config.log
+
+${srcdir}/configure: configure.in
+	cd ${srcdir} && autoconf
+
+Makefile: Makefile.in config.status
+	./config.status
+
+config.status: ${srcdir}/configure
+	./config.status --recheck
+
+
+dist: $(DISTFILES)
+	version=`$(grep) vsn reshd.pub | \
+		 $(sed) 's/^.*\([0-9][0-9]*\),\([0-9][0-9]*\).*$$/\1.\2/'`;\
+	distname=reshd-$$version; \
+	rm -rf $$distname; \
+	mkdir $$distname; \
+	for file in $(DISTFILES); do \
+	  ln $$file $$distname/$$file; \
+	done; \
+	$(tar) -chz -f $$distname.tar.gz $$distname; \
+	rm -rf $$distname

@@ -1,0 +1,63 @@
+Reshd
+=====
+$Id: README,v 1.1 2002-07-21 14:59:23 tab Exp $
+
+Description
+-----------
+
+Reshd stands for remote Erlang shell daemon. It offers a telnet port
+into an Erlang shell in the Erlang node.
+
+Example session.
+----------------
+
+First we need to start the reshd in the erlang node:
+
+   109> reshd:start(40044).
+   {ok,40044}
+
+Then we can connect to this node:
+
+    unixprompt% telnet localhost 40044
+    Trying 127.0.0.1...
+    Connected to localhost.
+    Escape character is '^]'.
+    Eshell V5.0.1
+    1> io:format("Hello world!~n").
+    Hello world!
+    ok
+    2> exit().
+    ** Terminating shell **
+    Connection closed by foreign host.
+    unixprompt%
+
+There is also an Emacs package, resh, which provides means for
+connecting to the Erlang from within Emacs. Type as follows:
+
+    Connecting:
+    Type M-x resh RET to connect to the erlang node. 
+
+    Compilation buffer:
+    Type C-c s in the resh-buffer to set the current buffer as the
+    current inferior erlang compilation buffer. Now, when you type
+    C-c C-k, the compilation command will go directly into that erlang
+    node.
+
+Caveats
+
+* There is no tab completion and parentesis blinking like in the
+  ordinary Erlang shell. However, if you use resh from within Emacs,
+  to connect to the Erlang node, all your line editing wishes will
+  be fullfilled. 
+* There is no authorization procedure, and the connection is not
+  encrypted. 
+* There are no privileges. Any function in any module is callable for
+  anyone.
+
+Author
+------
+Tomas Abrahamsson <tab@lysator.liu.se>. 
+
+Homepage
+--------
+http://www.lysator.liu.se/~tab/erlang/reshd/
