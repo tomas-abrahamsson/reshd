@@ -1,301 +1,338 @@
-%% ``The contents of this file are subject to the Erlang Public License,
-%% Version 1.1, (the "License"); you may not use this file except in
-%% compliance with the License. You should have received a copy of the
-%% Erlang Public License along with this software. If not, it can be
-%% retrieved via the world wide web at http://www.erlang.org/.
-%% 
-%% Software distributed under the License is distributed on an "AS IS"
-%% basis, WITHOUT WARRANTY OF ANY KIND, either express or implied. See
-%% the License for the specific language governing rights and limitations
-%% under the License.
-%% 
-%% The Initial Developer of the Original Code is Ericsson Utvecklings AB.
-%% Portions created by Ericsson are Copyright 1999, Ericsson Utvecklings
-%% AB. All Rights Reserved.''
-%% 
-%%     $Id: reshd.erl,v 1.1 2001-04-12 14:24:54 tab Exp $
-%%
--module(shell).
+%%%----------------------------------------------------------------------
+%%% File    : reshd.erl
+%%% Author  : Tomas Abrahamsson <tab@lysator.liu.se>
+%%% Purpose : Telnet interface to the shell
+%%% Created : 12 Apr 2001 by Tomas Abrahamsson <tab@lysator.liu.se>
+%%%----------------------------------------------------------------------
 
--export([start/1,server/1,evaluator/3,local_func/4]).
+-module(reshd).
+-author('tab@lysator.liu.se').
+-vsn('$Revision: 1.2 $'). % '
+-rcs('$Id: reshd.erl,v 1.2 2001-04-18 10:54:06 tab Exp $').	% '
 
--define(LINEMAX, 30).
+%%-compile(export_all).
+%%-export([Function/Arity, ...]).
 
-start(IoPid) ->
-    code:ensure_loaded(user_default),
-    spawn(shell, server, [IoPid]).
+%% API
+-export([start/1, start/2]).
+-export([stop/1, stop/2]).
 
-server(IoPid) ->
-    %% Our spawner has fixed the process groups.
-    Bs = erl_eval:new_bindings(),
-    process_flag(trap_exit, true),
-    fwrite(IoPid, "Eshell V~s~n", [erlang:info(version)]),
-    server_loop(0, start_eval(Bs, []), Bs, []).
 
-server_loop(N0, Eval_0, Bs0, Ds0) ->
-    N = N0 + 1,
-    {Res, Eval0} = get_command(IoPid, prompt(N), Eval_0, Bs0, Ds0),
-    case Res of 
-	{ok,Es0,EndLine} ->			%Commands
-	    case expand_hist(Es0, N) of
-		{ok,Es} ->
-		    {V,Eval,Bs,Ds} = shell_cmd(Es, Eval0, Bs0, Ds0, N),
-		    del_cmd(N - 20),
-		    add_cmd(N, Es, V),
-		    server_loop(N, Eval, Bs, Ds);
-		{error,E} ->
-		    io:fwrite("** ~s **\n", [E]),
-		    server_loop(N0, Eval0, Bs0, Ds0)
+%% exports due to spawns
+-export([server_init/3]).
+-export([clienthandler_init/3]).
+
+%% ----------------------------------------------------------------------
+%% ----------------------------------------------------------------------
+%% The server part -- a server for listening to incoming socket
+%%                    connections a clienthandler process is spawned
+%%                    for every new connection.
+%% ----------------------------------------------------------------------
+%% ----------------------------------------------------------------------
+start(PortNumber) ->
+    start(any, PortNumber).
+start(IP, PortNumber) ->
+    server_start(IP, PortNumber).
+
+stop(PortNumber) ->
+    stop(any, PortNumber).
+stop(IP, PortNumber) ->
+    server_stop(IP, PortNumber).
+
+
+server_start(IP, PortNumber) ->
+    Server = spawn(?MODULE, server_init, [self(), IP, PortNumber]),
+    receive
+	{ok, UsedPortNumber} ->
+	    RegName = build_regname(IP, UsedPortNumber),
+	    register(RegName, Server),
+	    {ok, UsedPortNumber};
+	{error, {Symptom, Diagnostics}} ->
+	    {error, {Symptom, Diagnostics}}
+    end.
+
+
+server_stop(IP, PortNumber) ->
+    RegName = build_regname(IP, PortNumber),
+    case whereis(RegName) of
+	undefined ->
+	    do_nothing;
+	Pid ->
+	    Pid ! stop
+    end.
+
+
+build_regname(any, PortNumber) ->
+    Name = atom_to_list(?MODULE) ++ "_any_" ++ integer_to_list(PortNumber),
+    list_to_atom(Name);
+build_regname({IP1, IP2, IP3, IP4}, PortNumber) ->
+    Name = atom_to_list(?MODULE) ++ "_" ++
+	list_to_integer(IP1) ++ "_" ++
+	list_to_integer(IP2) ++ "_" ++
+	list_to_integer(IP3) ++ "_" ++
+	list_to_integer(IP4) ++ "_" ++
+	"_" ++ integer_to_list(PortNumber),
+    list_to_atom(Name);
+build_regname(HostNameOrIP, PortNumber) ->
+    Name = atom_to_list(?MODULE) ++
+	"_" ++ HostNameOrIP ++ "_" ++
+	integer_to_list(PortNumber),
+    list_to_atom(Name).
+
+
+server_init(From, IP, PortNumber) ->
+    IPOpt = ip_to_opt(IP),
+    ListenOpts = [list,
+		  {packet, 0},
+		  {active, true},		% this is the default
+		  {nodelay, true},
+		  {reuseaddr, true}] ++ IPOpt,
+    case gen_tcp:listen(PortNumber, ListenOpts) of
+	{ok, ServerSocket} ->
+	    {ok, UsedPortNumber} = inet:port(ServerSocket),
+	    From ! {ok, UsedPortNumber},
+	    process_flag(trap_exit, true),
+	    server_loop(From, ServerSocket);
+	{error, Reason} ->
+	    From ! {error, {listen_failed, Reason}}
+    end.
+
+
+ip_to_opt(any) ->
+    [];
+ip_to_opt({IP1, IP2, IP3, IP4}=IPNumber) ->
+    [{ip, IPNumber}];
+ip_to_opt(HostNameOrIPAsString) ->
+    case inet:getaddr(HostNameOrIPAsString, inet) of
+	{ok, IPNumber} ->
+	    [{ip, IPNumber}];
+	{error, Error} ->
+	    io:format("~p: IP lookup failed for ~p: ~p. Binding to any ip.",
+		      [?MODULE,HostNameOrIPAsString, Error]),
+	    []
+    end.
+
+
+server_loop(From, ServerSocket) ->
+    server_loop(From, ServerSocket, []).
+
+server_loop(From, ServerSocket, Clients) ->
+    case gen_tcp:accept(ServerSocket, 250) of
+	{ok, ClientSocket} ->
+	    ClientHandler = clienthandler_start(From, self(), ClientSocket),
+	    gen_tcp:controlling_process(ClientSocket, ClientHandler),
+	    server_loop(From, ServerSocket, [ClientHandler | Clients]);
+	{error, timeout} ->
+	    %% Check for signals now and then
+	    receive
+		stop ->
+		    lists:foreach(fun(Client) -> Client ! stop end, Clients),
+		    done;
+		{client_stop, Client} ->
+		    RemainingClients = [C || C <- Clients, C /= Client],
+		    server_loop(From, ServerSocket, RemainingClients);
+		{'EXIT', Client, Reason} ->
+		    RemainingClients = [C || C <- Clients, C /= Client],
+		    server_loop(From, ServerSocket, RemainingClients);
+		Unexpected ->
+		    io:format("~p:server_loop: unexpected message:~p",
+			      [?MODULE, Unexpected]),
+		    server_loop(From, ServerSocket, Clients)
+	    after 0 ->
+		    server_loop(From, ServerSocket, Clients)
 	    end;
-	{error,{Line,Mod,What},EndLine} ->
-	    io:fwrite("** ~w: ~s **\n", [Line,apply(Mod,format_error,[What])]),
-	    server_loop(N0, Eval0, Bs0, Ds0);
-	{error,terminated} ->			%Io process terminated
-	    exit(Eval0, kill),
-	    terminated;
-	{error,interrupted} ->			%Io process interrupted us
-	    exit(Eval0, kill),
-	    {_,Eval,_,_} = shell_rep(Eval0, Bs0, Ds0),
-	    server_loop(N0, Eval, Bs0, Ds0);
-	{eof,EndLine} ->
-	    io:fwrite("** Terminating erlang **\n"),
-	    halt();
-	eof ->
-	    io:fwrite("** Terminating erlang **\n"),
-	    halt()
+	{error, Reason} ->
+	    io:format("~p:server_loop: Error: accepting on ~p: ~p.",
+		      [?MODULE, ServerSocket, Reason])
     end.
 
-get_command(IoPid, Prompt, Eval, Bs, Ds) ->
-    Parse = fun() -> exit(io:parse_erl_exprs(IoPid, Prompt)) end,
-    Pid = spawn_link(erlang, apply, [Parse, []]),
-    get_command1(Pid, Eval, Bs, Ds).
 
-get_command1(Pid, Eval, Bs, Ds) ->
+%% ----------------------------------------------------------------------
+%% ----------------------------------------------------------------------
+%% The client handler part -- handles a client:
+%%                            * reads, parses and executes commands
+%%			      * returns the result from the commands
+%%			        to the client.
+%% ----------------------------------------------------------------------
+%% ----------------------------------------------------------------------
+clienthandler_start(From, Server, ClientSocket) ->
+    spawn_link(?MODULE, clienthandler_init, [From, Server, ClientSocket]).
+
+-record(io_request,
+	{
+	  prompt,
+	  mod, fn, args,
+	  from, reply_as
+	 }).
+	  
+
+clienthandler_init(From, Server, ClientSocket) ->
+    %% Announce ourself as group leader.
+    %% This causes all calls to io:format(...) and such alike
+    %% to send their output to us.
+    group_leader(self(), self()),
+
+    %% Next, start the shell
+    %% and link to it, so we know when it exits.
+    process_flag(trap_exit, true),
+    Reshd = shell:start(true),
+    link(Reshd),
+
+    %% Go ahead and take care of user input!
+    R = (catch clienthandler_loop(idle, Reshd, Server, ClientSocket)),
+    exit(Reshd, kill).
+
+clienthandler_loop(State, Reshd, Server, ClientSocket) ->
     receive
-	{'EXIT', Pid, Res} ->
-	    {Res, Eval};
-	{'EXIT', Eval, Reason} ->
-	    io:fwrite("** exited: ~P **\n", [Reason, ?LINEMAX]),
-	    get_command1(Pid, start_eval(Bs, Ds), Bs, Ds)
+	{tcp, _Socket, InData} ->
+	    case handle_input(ClientSocket, State, InData) of
+		{ok, NewState} ->
+		    clienthandler_loop(NewState, Reshd, Server, ClientSocket);
+		close ->
+		    gen_tcp:close(ClientSocket)
+	    end;
+
+	{tcp_closed, Socket} ->
+	    Server ! {client_stop, self()},
+	    done;
+
+	{tcp_error, Socket, Reason} ->
+	    Server ! {client_stop, self()},
+	    done;
+
+	stop ->
+	    gen_tcp:close(ClientSocket),
+	    done;
+
+	{io_request, From, ReplyAs, Req} ->
+	    case handle_io_request(ClientSocket, State, From, ReplyAs, Req) of
+		{ok, NewState} ->
+		    clienthandler_loop(NewState, Reshd, Server, ClientSocket);
+		close ->
+		    gen_tcp:close(ClientSocket)
+	    end;
+
+	{'EXIT', Reshd, normal} ->
+	    gen_tcp:close(ClientSocket);
+
+	{'EXIT', Reshd, _OtherReason} ->
+	    gen_tcp:close(ClientSocket);
+
+	Other ->
+	    clienthandler_loop(State, Reshd, Server, ClientSocket)
     end.
 
-prompt(N) ->
-    case is_alive() of
-	true -> {format,"(~s)~w> ",[node(),N]};
-	false -> {format,"~w> ",[N]}
+
+%% Returns:
+%%   {ok, NewState} |
+%%   close
+handle_input(ClientSocket, State, InData) ->
+    case State of
+	idle ->
+	    {ok, {pending_input, InData}};
+	{pending_input, PendingInput} ->
+	    NewInput = PendingInput ++ InData,
+	    {ok, {pending_input, NewInput}};
+	{pending_request, Cont, [FirstReq | RestReqs] = Requests} ->
+	    #io_request{prompt = Prompt,
+			mod = Mod,
+			fn = Fun,
+			args = Args} = FirstReq,
+	    case catch apply(Mod, Fun, [Cont, InData|Args]) of
+		{more, NewCont} ->
+		    PromptText = case Prompt of
+				     {IoFun, PromptFmtStr, PromptArgs} ->
+					 io_lib:IoFun(PromptFmtStr,PromptArgs);
+				     {IoFun, PromptFmtStr} ->
+					 io_lib:IoFun(PromptFmtStr, [])
+				 end,
+		    gen_tcp:send(ClientSocket, PromptText),
+		    {ok, {pending_request, NewCont, Requests}};
+		{done, Result, []} ->
+		    #io_request{from = From,
+				reply_as = ReplyAs} = FirstReq,
+		    From ! {io_reply, ReplyAs, Result},
+		    case length(RestReqs) of
+			0 ->
+			    {ok, idle};
+			N ->
+			    InitCont = init_cont(),
+			    {ok, {pending_request, InitCont, RestReqs}}
+		    end;
+		{done, Result, RestChars} ->
+		    #io_request{from = From,
+				reply_as = ReplyAs} = FirstReq,
+		    From ! {io_reply, ReplyAs, Result},
+		    case length(RestReqs) of
+			0 ->
+			    {ok, {pending_input, RestChars}};
+			N ->
+			    InitCont = init_cont(),
+			    TmpState = {pending_request, InitCont, RestReqs},
+			    handle_input(ClientSocket, RestChars, TmpState)
+		    end;
+		Other ->
+		    io:format("Unexpected result from call: ~p~n", [Other]),
+		    close
+	    end
     end.
 
-%% expand_hist(Expressions, CommandNumber)
-%%  Preprocess the expression list replacing all history list commands
-%%  with their expansions.
 
-expand_hist(Es, C) ->
-    catch {ok,expand_exprs(Es, C)}.
+%% Returns:
+%%   {ok, NewState} |
+%%   close
+handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
+    case IoRequest of
+	{put_chars, Mod, Fun, Args} ->
+	    Text = case catch apply(Mod, Fun, Args) of
+		      {'EXIT', Reason} -> "";
+		      Txt -> Txt
+		   end,
+	    gen_tcp:send(ClientSocket, Text),
+	    From ! {io_reply, ReplyAs, ok},
+	    {ok, State};
 
-expand_exprs([E|Es], C) ->
-    [expand_expr(E, C)|expand_exprs(Es, C)];
-expand_exprs([], C) ->
+	{put_chars, Text} ->
+	    gen_tcp:send(ClientSocket, Text),
+	    From ! {io_reply, ReplyAs, ok},
+	    {ok, State};
+
+	{get_until, Prompt, Mod, Fun, Args} ->
+	    PromptText = case Prompt of
+			     {IoFun, PromptFmtStr, PromptArgs} ->
+				 io_lib:IoFun(PromptFmtStr, PromptArgs);
+			     {IoFun, PromptFmtStr} ->
+				 io_lib:IoFun(PromptFmtStr, [])
+			 end,
+	    gen_tcp:send(ClientSocket, PromptText),
+	    NewReq = #io_request{prompt = Prompt,
+				 mod = Mod,
+				 fn = Fun,
+				 args = Args,
+				 from = From,
+				 reply_as = ReplyAs},
+	    case State of
+		{pending_request, Cont, PendingReqs} ->
+		    NewState = {pending_request, Cont, PendingReqs++[NewReq]},
+		    {ok, NewState};
+
+		idle ->
+		    InitContinuation = init_cont(),
+		    NewState = {pending_request, InitContinuation, [NewReq]},
+		    {ok, NewState};
+
+		{pending_input, Input} ->
+		    InitContinuation = init_cont(),
+		    TmpState = {pending_request, InitContinuation, [NewReq]},
+		    handle_input(ClientSocket, TmpState, Input)
+	    end;
+
+	UnexpectedIORequest ->
+	    io:format("Unexpected IORequest:~p~n", [UnexpectedIORequest]),
+	    From ! {io_reply, ReplyAs, ok},
+	    {ok, State}
+    end.
+    
+
+init_cont() ->
     [].
-
-expand_expr({cons,L,H,T}, C) ->
-    {cons,L,expand_expr(H, C),expand_expr(T, C)};
-expand_expr({lc,L,E,Qs}, C) ->
-    {lc,L,expand_expr(E, C),expand_quals(Qs, C)};
-expand_expr({tuple,L,Elts}, C) ->
-    {tuple,L,expand_exprs(Elts, C)};
-expand_expr({record_index,L,Name,F}, C) ->
-    {record_index,L,Name,expand_expr(F, C)};
-expand_expr({record,L,Name,Is}, C) ->
-    {record,L,Name,expand_fields(Is, C)};
-expand_expr({record_field,L,R,Name,F}, C) ->
-    {record_field,L,expand_expr(R, C),Name,expand_expr(F, C)};
-expand_expr({record,L,R,Name,Ups}, C) ->
-    {record,L,expand_expr(R, C),Name,expand_fields(Ups, C)};
-expand_expr({record_field,L,R,F}, C) ->		%This is really illegal!
-    {record_field,L,expand_expr(R, C),expand_expr(F, C)};
-expand_expr({block,L,Es}, C) ->
-    {block,L,expand_exprs(Es, C)};
-expand_expr({'if',L,Cs}, C) ->
-    {'if',L,expand_cs(Cs, C)};
-expand_expr({'case',L,E,Cs}, C) ->
-    {'case',L,expand_expr(E, C),expand_cs(Cs, C)};
-expand_expr({'receive',L,Cs}, C) ->
-    {'receive',L,expand_cs(Cs, C)};
-expand_expr({'receive',L,Cs,To,ToEs}, C) ->
-    {'receive',L,expand_cs(Cs, C), expand_expr(To, C), expand_exprs(ToEs, C)};
-expand_expr({call,L,{atom,_,e},[N]}, C) ->
-    case get_cmd(N, C) of
-	{[Ce],V} ->
-	    Ce;
-	{Ces,V} ->
-	    {block,L,Ces};
-	undefined ->
-	    no_command(N)
-    end;
-expand_expr({call,L,{atom,_,v},[N]}, C) ->
-    case get_cmd(N, C) of
-	{Ces,V} ->
-	    {value,L,V};
-	undefined ->
-	    no_command(N)
-    end;
-expand_expr({call,L,F,Args}, C) ->
-    {call,L,expand_expr(F, C),expand_exprs(Args, C)};
-expand_expr({'catch',L,E}, C) ->
-    {'catch',L,expand_expr(E, C)};
-expand_expr({match,L,Lhs,Rhs}, C) ->
-    {match,L,Lhs,expand_expr(Rhs, C)};
-expand_expr({op,L,Op,Arg}, C) ->
-    {op,L,Op,expand_expr(Arg, C)};
-expand_expr({op,L,Op,Larg,Rarg}, C) ->
-    {op,L,Op,expand_expr(Larg, C),expand_expr(Rarg, C)};
-expand_expr({remote,L,M,F}, C) ->
-    {remote,L,expand_expr(M, C),expand_expr(F, C)};
-expand_expr(E, C) ->				%All constants
-    E.
-
-expand_cs([{clause,L,P,G,B}|Cs], C) ->
-    [{clause,L,P,G,expand_exprs(B, C)}|expand_cs(Cs, C)];
-expand_cs([], C) ->
-    [].
-
-expand_fields([{record_field,L,F,V}|Fs], C) ->
-    [{record_field,L,expand_expr(F, C),expand_expr(V, C)}|
-     expand_fields(Fs, C)];
-expand_fields([], C) -> [].
-
-expand_quals([{generate,L,P,E}|Qs], C) ->
-    [{generate,L,P,expand_expr(E, C)}|expand_quals(Qs, C)];
-expand_quals([E|Qs], C) ->
-    [expand_expr(E, C)|expand_quals(Qs, C)];
-expand_quals([], C) -> [].
-
-no_command(N) ->
-    throw({error,io_lib:fwrite("~s: command not found", [erl_pp:expr(N)])}).
-
-%% add_cmd(Number, Expressions, Value)
-%% get_cmd(Number, CurrentCommand)
-%% del_cmd(Number)
-
-add_cmd(N, Es, V) ->
-    put({command,N}, {Es, V}).
-
-get_cmd(Num, C) ->
-    case catch erl_eval:expr(Num, []) of
-	{value,N,_} when N < 0 -> get({command,C+N});
-	{value,N,_} -> get({command,N});
-	Other -> undefined
-    end.
-
-del_cmd(N) ->
-    erase({command,N}).
-
-%% shell_cmd(Sequence, Evaluator, Bindings, Dictionary, CommandNumber)
-%% shell_rep(Evaluator) ->
-%%	{Value,Evaluator,Bindings,Dictionary}
-%%  Send a command to the evaluator and wait for the reply. Start a new
-%%  evaluator if necessary.
-
-shell_cmd(Es, Eval, Bs, Ds, N) ->
-    Eval ! {shell_cmd,self(),{eval,Es}},
-    shell_rep(Eval, Bs, Ds).
-
-shell_rep(Ev, Bs0, Ds0) ->
-    receive
-	{shell_rep,Ev,{value,V,Bs,Ds}} ->
-	    io:fwrite("~P~n", [V,?LINEMAX]),
-	    {V,Ev,Bs,Ds};
-	{shell_req,Ev,get_cmd} ->
-	    Ev ! {shell_rep,self(),get()},
-	    shell_rep(Ev, Bs0, Ds0);
-	{shell_req,Ev,exit} ->
-	    Ev ! {shell_rep,self(),exit},
-	    io:fwrite("** Terminating shell **\n", []),
-	    exit(normal);
-	{'EXIT',Ev,Reason} ->			%It has exited unnaturally
-	    io:fwrite("** exited: ~P **\n", [Reason,?LINEMAX]),
-	    {{'EXIT',Reason},start_eval(Bs0, Ds0), Bs0, Ds0};
-	{'EXIT',Id,interrupt} ->		%Someone interrupted us
-	    exit(Ev, kill),
-	    shell_rep(Ev, Bs0, Ds0);
-	{'EXIT',Id,R} ->
-	    exit(Ev, R),
-	    exit(R);
-	Other ->				%Ignore everything else
-	    shell_rep(Ev, Bs0, Ds0)
-    end.
-
-start_eval(Bs, Ds) ->
-    spawn_link(shell, evaluator, [self(),Bs,Ds]).
-
-%% evaluator(Shell, Bindings, ProcessDictionary)
-%%  Evaluate expressions from the shell. Use the "old" variable bindings
-%%  and ductionary.
-
-evaluator(Shell, Bs, Ds) ->
-    init_dict(Ds),
-    eval_loop(Shell, Bs).
-
-eval_loop(Shell, Bs0) ->
-    receive
-	{shell_cmd,Shell,{eval,Es}} ->
-	    {value,V,Bs} = erl_eval:exprs(Es, Bs0,
-					  {eval,{shell,local_func},[Shell]}),
-	    Shell ! {shell_rep,self(),{value,V,Bs,get()}},
-	    eval_loop(Shell, Bs)
-    end.
-
-init_dict([{K,V}|Ds]) ->
-    put(K, V),
-    init_dict(Ds);
-init_dict([]) -> true.
-
-%% local_func(Function, Args, Bindings, Shell) ->
-%%	{value,Val,Bs}
-%%  Evaluate local functions, including shell commands.
-
-local_func(h, [], Bs, Shell) ->
-    Cs = shell_req(Shell, get_cmd),
-    {value,list_commands(lists:keysort(1, Cs)),Bs};
-local_func(b, [], Bs, Shell) ->
-    {value,list_bindings(erl_eval:bindings(Bs)),Bs};
-local_func(f, [], Bs, Shell) ->
-    {value,ok,[]};
-local_func(f, [{var,_,Name}], Bs, Shell) ->
-    {value,ok,erl_eval:del_binding(Name, Bs)};
-local_func(f, [Other], Bs, Shell) ->
-    exit({function_clause,{shell,f,1}});
-local_func(exit, [], Bs, Shell) ->
-    shell_req(Shell, exit),			%This terminates us
-    exit(normal);
-local_func(F, As0, Bs0, Shell) when atom(F) ->
-    {As,Bs} = erl_eval:expr_list(As0, Bs0, {eval,{shell,local_func},[Shell]}),
-    case erlang:function_exported(user_default, F, length(As)) of
-	true ->
-	    {value,apply(user_default, F, As),Bs};
-	false ->
-	    {value,apply(shell_default, F, As),Bs}
-    end;
-local_func(F, As0, Bs0, Shell) ->
-    {As,Bs} = erl_eval:expr_list(As0, Bs0, {eval,{shell,local_func},[Shell]}),
-    {value,apply(F, As),Bs}.
-
-shell_req(Shell, Req) ->
-    Shell ! {shell_req,self(),Req},
-    receive
-	{shell_rep,Shell,Rep} -> Rep
-    end.
-
-list_commands([{{command,N},{Es,V}}|Ds]) ->
-    io:requests([{format,"~w: ~s~n",[N,erl_pp:exprs(Es)]},
-		 {format,"-> ~P~n",[V,?LINEMAX]}]),
-    list_commands(Ds);
-list_commands([D|Ds]) ->
-    list_commands(Ds);
-list_commands([]) -> ok.
-
-list_bindings([{Name,Val}|Bs]) ->
-    io:fwrite("~s = ~P~n", [Name,Val,?LINEMAX]),
-    list_bindings(Bs);
-list_bindings([]) ->
-    ok.
