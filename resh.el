@@ -1,7 +1,7 @@
 ;;; resh.el -- emacs support for connecting to a reshd
 ;;;            (remote erlang shell daemon)
 ;;
-;; $Id: resh.el,v 1.6 2001-05-11 16:05:41 tab Exp $
+;; $Id: resh.el,v 1.7 2001-08-21 16:07:39 tab Exp $
 ;;
 ;; Author: Tomas Abrahamsson <tab@lysator.liu.se>
 
@@ -46,13 +46,13 @@
 
 
 (defvar resh-host-history nil
-  "Host history for `resh'")
+  "Host history for `resh'.")
 
 (defvar resh-port-history nil
-  "Port history for `resh'")
+  "Port history for `resh'.")
 
 (defvar resh-buff-history nil
-  "Buffer name history for `resh'")
+  "Buffer name history for `resh'.")
 
 (defvar resh-current-host nil
   "Buffer-local variable, used for reconnection.")
@@ -61,16 +61,19 @@
   "Buffer-local variable, used for reconnection.")
 
 (defvar resh-is-installed nil
-  "Whether resh is installed or not")
+  "Whether resh is installed or not.")
 
 (defvar resh-auto-install-enabled t
-  "Whether resh should autoinstall upon call to resh")
+  "Whether resh should autoinstall upon call to resh.")
 
 (defvar resh-current-process-name nil
-  "Buffer-local variable for name of current comint process")
+  "Buffer-local variable for name of current comint process.")
 
 (defvar resh-current-process nil
-  "Buffer-local variable for current comint process")
+  "Buffer-local variable for current comint process.")
+
+(defvar resh-started-by-resh nil
+  "Buffer-local variable for remembering who started this buffer.")
 
 
 ;;;###autoload
@@ -154,10 +157,12 @@ editing control characters:
       (make-variable-buffer-local 'resh-current-port)
       (make-variable-buffer-local 'resh-current-process-name)
       (make-variable-buffer-local 'resh-current-process)
+      (make-variable-buffer-local 'resh-started-by-resh)
       (setq resh-current-host host)
       (setq resh-current-port port)
       (setq resh-current-process-name proc-name)
       (setq resh-current-process erl-process)
+      (setq resh-started-by-resh t)
       (erlang-shell-mode))))
 
 (defun resh-simple-send (proc string)
@@ -187,11 +192,24 @@ editing control characters:
   (interactive)
   (if (not resh-is-installed)
       (progn
-	(if (not (member 'resh-install-erl-keys erlang-mode-hook))
-	    (add-hook 'erlang-mode-hook 'resh-install-erl-keys))
-	(if (not (member 'resh-install-erl-shell-keys erlang-shell-mode-hook))
-	    (add-hook 'erlang-shell-mode-hook 'resh-install-erl-shell-keys))
-	(setq resh-is-installed t))))
+	(resh-addhook-once erlang-mode-hook 'resh-install-erl-keys)
+	(resh-addhook-once erlang-shell-mode-hook 'resh-install-erl-shell-keys)
+	(resh-addhook-once erlang-shell-mode-hook 'resh-remember-state)
+	)))
+
+(defmacro resh-addhook-once (hook fn)
+  (list 'if (list 'not (list 'member fn hook))
+	(list 'add-hook (list 'quote hook) fn)))
+
+(defun resh-remember-state ()
+  (if (not resh-started-by-resh)
+      (progn
+	(make-variable-buffer-local 'resh-current-process-name)
+	(make-variable-buffer-local 'resh-current-process)
+	(make-variable-buffer-local 'resh-started-by-resh)
+	(setq resh-current-process-name inferior-erlang-process-name)
+	(setq resh-current-process inferior-erlang-process)
+	(setq resh-started-by-resh t))))
 
 (defun resh-install-erl-keys ()
   (local-set-key "\C-cc" 'resh))
