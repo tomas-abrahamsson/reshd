@@ -1,15 +1,34 @@
-;;; resh.el -- emacs support for connecting to an reshd
+;;; resh.el -- emacs support for connecting to a reshd
 ;;;            (remote erlang shell daemon)
 ;;
-;; $Id: resh.el,v 1.4 2001-04-24 12:59:26 tab Exp $
+;; $Id: resh.el,v 1.5 2001-05-04 09:57:34 tab Exp $
 ;;
-;; by Tomas Abrahamsson <epktoab@lmera.ericsson.se>
-;;
+;; Author: Tomas Abrahamsson <tab@lysator.liu.se>
+
+;;; COPYRIGHT
+
+;; These programs are released into the public domain.  You may do
+;; anything you like with them, including modifying them and selling
+;; the binaries without source for ridiculous amounts of money without
+;; saying who made them originally.
+;; 
+;; However, I would be happy if you release your works with complete
+;; source for free use.
 
 ;;; Installation:
 
-;; (load-library "resh")
-;; (resh-install)
+;; Either:
+;;
+;;   (autoload 'resh "resh" "Start a connection to an erlang reshd" t)
+;; 
+;; or:
+;;
+;;   (load-library "resh")
+;;   (resh-install)		; installs keymaps
+;;
+;; The difference is that in the second case, the resh is bound to
+;; C-c c immediately, while in the first case no key bindings are
+;; installed until you have typed M-x resh for the first time.
 
 ;;; Code
 
@@ -18,22 +37,22 @@
 ;; User definable variables
 ;; vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
 (defvar resh-default-host "localhost"
-  "*Default hostname for `resh-inferior-erlang'.")
+  "*Default hostname for `resh'.")
 
 (defvar resh-default-port nil
-  "*Default port (an integer) for `resh-inferior-erlang'.")
+  "*Default port (an integer) for `resh'.")
 ;; ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 ;; End of user definable variables
 
 
 (defvar resh-host-history nil
-  "Host history `resh-inferior-erlang'")
+  "Host history for `resh'")
 
 (defvar resh-port-history nil
-  "Port history `resh-inferior-erlang'")
+  "Port history for `resh'")
 
 (defvar resh-buff-history nil
-  "Buffer name history `resh-inferior-erlang'")
+  "Buffer name history for `resh'")
 
 (defvar resh-current-host nil
   "Buffer-local variable, used for reconnection.")
@@ -41,8 +60,14 @@
 (defvar resh-current-port nil
   "Buffer-local variable, used for reconnection.")
 
+(defvar resh-is-installed nil
+  "Whether resh is installed or not")
+
+(defvar resh-auto-install-enabled t
+  "Whether resh should autoinstall upon call to resh")
 
 
+;;;###autoload
 (defun resh (host port &optional reconnecting wanted-buffer-name)
   "Run an inferior remote Erlang shell.
 
@@ -80,6 +105,9 @@ editing control characters:
 			   (read-string buffer-prompt nil buff-hist)
 			 nil)))
      (list remote-host remote-port nil buffer-name)))
+
+  (if (and (not resh-is-installed) resh-auto-install-enabled)
+      (resh-install))
 
   (require 'comint)
 
@@ -130,7 +158,7 @@ editing control characters:
 (defun resh-reconnect ()
   "Try to reconnect to a remote Erlang shell daemon."
   (interactive)
-  (resh-inferior-erlang resh-current-host resh-current-port t))
+  (resh resh-current-host resh-current-port t))
 
 (defun resh-set-inferior-erlang-buffer ()
   "Set current buffer to the inferior erlang buffer."
@@ -139,12 +167,16 @@ editing control characters:
   (message "This buffer is now set to the current inferior erlang buffer"))
 
 
+;;;###autoload
 (defun resh-install ()
   (interactive)
-  (if (not (member 'resh-install-erl-keys erlang-mode-hook))
-      (add-hook 'erlang-mode-hook 'resh-install-erl-keys))
-  (if (not (member 'resh-install-erl-shell-keys erlang-shell-mode-hook))
-      (add-hook 'erlang-shell-mode-hook 'resh-install-erl-shell-keys)))
+  (if (not resh-is-installed)
+      (progn
+	(if (not (member 'resh-install-erl-keys erlang-mode-hook))
+	    (add-hook 'erlang-mode-hook 'resh-install-erl-keys))
+	(if (not (member 'resh-install-erl-shell-keys erlang-shell-mode-hook))
+	    (add-hook 'erlang-shell-mode-hook 'resh-install-erl-shell-keys))
+	(setq resh-is-installed t))))
 
 (defun resh-install-erl-keys ()
   (local-set-key "\C-cc" 'resh-erlang))

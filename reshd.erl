@@ -1,21 +1,27 @@
 %%%----------------------------------------------------------------------
+%%% Purpose : Remote erlang shell daemon -- a telnet interface to the shell
 %%% File    : reshd.erl
 %%% Author  : Tomas Abrahamsson <tab@lysator.liu.se>
-%%% Purpose : Telnet interface to the shell
 %%% Created : 12 Apr 2001 by Tomas Abrahamsson <tab@lysator.liu.se>
+%%%
+%%% COPYRIGHT
+%%%
+%%% These programs are released into the public domain.  You may do
+%%% anything you like with them, including modifying them and selling
+%%% the binaries without source for ridiculous amounts of money without
+%%% saying who made them originally.
+%%% 
+%%% However, I would be happy if you release your works with complete
+%%% source for free use.
 %%%----------------------------------------------------------------------
-
 -module(reshd).
 -author('tab@lysator.liu.se').
--rcs('$Id: reshd.erl,v 1.4 2001-04-23 17:56:21 tab Exp $').	% '
-
-%%-compile(export_all).
-%%-export([Function/Arity, ...]).
+-rcs('$Id: reshd.erl,v 1.5 2001-05-04 09:57:48 tab Exp $').	% '
 
 %% API
 -export([start/1, start/2]).
 -export([stop/1, stop/2]).
-
+-export([build_regname/1, build_regname/2]).
 
 %% exports due to spawns
 -export([server_init/3]).
@@ -23,43 +29,63 @@
 
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
-%% The server part -- a server for listening to incoming socket
-%%                    connections a clienthandler process is spawned
-%%                    for every new connection.
+%% API
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
+
+%% ----------------------------------------------------------------------
+%% start(PortNumber) -> {ok, UsedPortNumber} | {error, Reason}
+%% start(IP, PortNumber) -> {ok, UsedPortNumber} | {error, Reason}
+%%   Portnumber = UsedPortNumber = integer(0..65535)
+%%   IP = any | {Byte,Byte,Byte,Byte}
+%%   Byte = integer(0..255)
+%%
+%% Start the reshd server to listen for connections on TCP/IP port PortNumber.
+%%
+%% The special port number 0 means "use any available TCP/IP port".
+%% The port that is actually used is returned. If PortNumber != 0, then
+%% UsedPortNumber == PortNumber.
+%%
+%% Optionally, an IP address to bind to can also be specified.
+%% The default is that IP any, which means to bind to all ip addresses
+%% on the machine.
+%%
+%% The process that listens for and handles incoming connections is
+%% locally registred under the name reshd_<IP>_<UsedPortNumber>.
+%% build_regname is used to build the name.
+%% ----------------------------------------------------------------------
+
 start(PortNumber) ->
     start(any, PortNumber).
 start(IP, PortNumber) ->
     server_start(IP, PortNumber).
 
+%% ----------------------------------------------------------------------
+%% stop(PortNumber) -> void()
+%% stop(IP, PortNumber) -> void()
+%%   Portnumber = UsedPortNumber = integer(0..65535)
+%%   IP = any | {Byte,Byte,Byte,Byte}
+%%   Byte = integer(0..255)
+%% 
+%% Stops the reshd server and any open connections associated to it. 
+%% ----------------------------------------------------------------------
 stop(PortNumber) ->
     stop(any, PortNumber).
 stop(IP, PortNumber) ->
     server_stop(IP, PortNumber).
 
 
-server_start(IP, PortNumber) ->
-    Server = spawn(?MODULE, server_init, [self(), IP, PortNumber]),
-    receive
-	{ok, UsedPortNumber} ->
-	    RegName = build_regname(IP, UsedPortNumber),
-	    register(RegName, Server),
-	    {ok, UsedPortNumber};
-	{error, {Symptom, Diagnostics}} ->
-	    {error, {Symptom, Diagnostics}}
-    end.
-
-
-server_stop(IP, PortNumber) ->
-    RegName = build_regname(IP, PortNumber),
-    case whereis(RegName) of
-	undefined ->
-	    do_nothing;
-	Pid ->
-	    Pid ! stop
-    end.
-
+%% ----------------------------------------------------------------------
+%% build_regname(PortNumber) -> atom()
+%% build_regname(IP, PortNumber) -> atom()
+%%   Portnumber = UsedPortNumber = integer(0..65535)
+%%   IP = any | {Byte,Byte,Byte,Byte}
+%%   Byte = integer(0..255)
+%% 
+%% Build a name under which the reshd server may be registered.
+%% ----------------------------------------------------------------------
+build_regname(PortNumber) ->
+    build_regname(any, PortNumber).
 
 build_regname(any, PortNumber) ->
     Name = atom_to_list(?MODULE) ++ "_any_" ++ integer_to_list(PortNumber),
@@ -78,6 +104,31 @@ build_regname(HostNameOrIP, PortNumber) ->
 	integer_to_list(PortNumber),
     list_to_atom(Name).
 
+
+%% ----------------------------------------------------------------------
+%% ----------------------------------------------------------------------
+%% Internal functions: the server part
+%% ----------------------------------------------------------------------
+%% ----------------------------------------------------------------------
+server_start(IP, PortNumber) ->
+    Server = spawn(?MODULE, server_init, [self(), IP, PortNumber]),
+    receive
+	{ok, UsedPortNumber} ->
+	    RegName = build_regname(IP, UsedPortNumber),
+	    register(RegName, Server),
+	    {ok, UsedPortNumber};
+	{error, {Symptom, Diagnostics}} ->
+	    {error, {Symptom, Diagnostics}}
+    end.
+
+server_stop(IP, PortNumber) ->
+    RegName = build_regname(IP, PortNumber),
+    case whereis(RegName) of
+	undefined ->
+	    do_nothing;
+	Pid ->
+	    Pid ! stop
+    end.
 
 server_init(From, IP, PortNumber) ->
     IPOpt = ip_to_opt(IP),
@@ -148,10 +199,7 @@ server_loop(From, ServerSocket, Clients) ->
 
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
-%% The client handler part -- handles a client:
-%%                            * reads, parses and executes commands
-%%			      * returns the result from the commands
-%%			        to the client.
+%% The client handler part -- handles a user of the reshd.
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
 clienthandler_start(From, Server, ClientSocket) ->
@@ -372,6 +420,12 @@ nl_native_to_network("", Acc) ->
 
 
 loginfo(FmtStr, Args) ->
+    %% FIXME: Invent a way to log errors.
+    %% Can't use the error_log module since someone may
+    %% add a log handler that does io:format. Then there
+    %% will be a deadlock, I think, if this is function
+    %% is called from within code that handles the client.
     fixme.
 logerror(FmtStr, Args) ->
+    %% See loginfo/2.
     fixme.
