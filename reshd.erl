@@ -7,8 +7,7 @@
 
 -module(reshd).
 -author('tab@lysator.liu.se').
--vsn('$Revision: 1.2 $'). % '
--rcs('$Id: reshd.erl,v 1.2 2001-04-18 10:54:06 tab Exp $').	% '
+-rcs('$Id: reshd.erl,v 1.3 2001-04-18 17:09:45 tab Exp $').	% '
 
 %%-compile(export_all).
 %%-export([Function/Arity, ...]).
@@ -107,8 +106,9 @@ ip_to_opt(HostNameOrIPAsString) ->
 	{ok, IPNumber} ->
 	    [{ip, IPNumber}];
 	{error, Error} ->
-	    io:format("~p: IP lookup failed for ~p: ~p. Binding to any ip.",
-		      [?MODULE,HostNameOrIPAsString, Error]),
+	    error_logger:info_msg("~p: IP lookup failed for ~p: ~p. "
+				  "Binding to any ip.",
+				  [?MODULE, HostNameOrIPAsString, Error]),
 	    []
     end.
 
@@ -135,15 +135,17 @@ server_loop(From, ServerSocket, Clients) ->
 		    RemainingClients = [C || C <- Clients, C /= Client],
 		    server_loop(From, ServerSocket, RemainingClients);
 		Unexpected ->
-		    io:format("~p:server_loop: unexpected message:~p",
-			      [?MODULE, Unexpected]),
+		    error_logger:info_msg("~p:server_loop: "
+					  "unexpected message:~p",
+					  [?MODULE, Unexpected]),
 		    server_loop(From, ServerSocket, Clients)
 	    after 0 ->
 		    server_loop(From, ServerSocket, Clients)
 	    end;
 	{error, Reason} ->
-	    io:format("~p:server_loop: Error: accepting on ~p: ~p.",
-		      [?MODULE, ServerSocket, Reason])
+	    error_logger:error_msg("~p:server_loop: "
+				   "Error: accepting on ~p: ~p.",
+				   [?MODULE, ServerSocket, Reason])
     end.
 
 
@@ -184,8 +186,9 @@ clienthandler_init(From, Server, ClientSocket) ->
 
 clienthandler_loop(State, Reshd, Server, ClientSocket) ->
     receive
-	{tcp, _Socket, InData} ->
-	    case handle_input(ClientSocket, State, InData) of
+	{tcp, _Socket, Input} ->
+	    NativeInput = nl_network_to_native(Input),
+	    case handle_input(ClientSocket, State, NativeInput) of
 		{ok, NewState} ->
 		    clienthandler_loop(NewState, Reshd, Server, ClientSocket);
 		close ->
@@ -226,19 +229,19 @@ clienthandler_loop(State, Reshd, Server, ClientSocket) ->
 %% Returns:
 %%   {ok, NewState} |
 %%   close
-handle_input(ClientSocket, State, InData) ->
+handle_input(ClientSocket, State, Input) ->
     case State of
 	idle ->
-	    {ok, {pending_input, InData}};
+	    {ok, {pending_input, Input}};
 	{pending_input, PendingInput} ->
-	    NewInput = PendingInput ++ InData,
+	    NewInput = PendingInput ++ Input,
 	    {ok, {pending_input, NewInput}};
 	{pending_request, Cont, [FirstReq | RestReqs] = Requests} ->
 	    #io_request{prompt = Prompt,
 			mod = Mod,
 			fn = Fun,
 			args = Args} = FirstReq,
-	    case catch apply(Mod, Fun, [Cont, InData|Args]) of
+	    case catch apply(Mod, Fun, [Cont, Input|Args]) of
 		{more, NewCont} ->
 		    PromptText = case Prompt of
 				     {IoFun, PromptFmtStr, PromptArgs} ->
@@ -246,7 +249,8 @@ handle_input(ClientSocket, State, InData) ->
 				     {IoFun, PromptFmtStr} ->
 					 io_lib:IoFun(PromptFmtStr, [])
 				 end,
-		    gen_tcp:send(ClientSocket, PromptText),
+		    NWPrompt = nl_native_to_network(lists:flatten(PromptText)),
+		    gen_tcp:send(ClientSocket, NWPrompt),
 		    {ok, {pending_request, NewCont, Requests}};
 		{done, Result, []} ->
 		    #io_request{from = From,
@@ -272,7 +276,9 @@ handle_input(ClientSocket, State, InData) ->
 			    handle_input(ClientSocket, RestChars, TmpState)
 		    end;
 		Other ->
-		    io:format("Unexpected result from call: ~p~n", [Other]),
+		    error_logger:info_msg("~p:handle_input: "
+					  "Unexpected result from call: ~p~n",
+					  [?MODULE, Other]),
 		    close
 	    end
     end.
@@ -288,11 +294,13 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
 		      {'EXIT', Reason} -> "";
 		      Txt -> Txt
 		   end,
-	    gen_tcp:send(ClientSocket, Text),
+	    NWText = nl_native_to_network(lists:flatten(Text)),
+	    gen_tcp:send(ClientSocket, NWText),
 	    From ! {io_reply, ReplyAs, ok},
 	    {ok, State};
 
 	{put_chars, Text} ->
+	    NWText = nl_native_to_network(lists:flatten(Text)),
 	    gen_tcp:send(ClientSocket, Text),
 	    From ! {io_reply, ReplyAs, ok},
 	    {ok, State};
@@ -304,7 +312,9 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
 			     {IoFun, PromptFmtStr} ->
 				 io_lib:IoFun(PromptFmtStr, [])
 			 end,
-	    gen_tcp:send(ClientSocket, PromptText),
+	    NWPromptText = nl_native_to_network(lists:flatten(PromptText)),
+	    gen_tcp:send(ClientSocket, NWPromptText),
+
 	    NewReq = #io_request{prompt = Prompt,
 				 mod = Mod,
 				 fn = Fun,
@@ -328,7 +338,9 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
 	    end;
 
 	UnexpectedIORequest ->
-	    io:format("Unexpected IORequest:~p~n", [UnexpectedIORequest]),
+	    error_logger:info_msg("~p:handle_io_request: "
+				  "Unexpected IORequest:~p~n",
+				  [?MODULE, UnexpectedIORequest]),
 	    From ! {io_reply, ReplyAs, ok},
 	    {ok, State}
     end.
@@ -336,3 +348,32 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
 
 init_cont() ->
     [].
+
+%% Convert network newline (cr,lf) to native (\n)
+nl_network_to_native(Input) ->
+    nl_network_to_native(Input, "").
+
+
+nl_network_to_native("\r\n" ++ Rest, Acc) ->
+    nl_network_to_native(Rest, [$\n | Acc]);
+nl_network_to_native([C | Rest], Acc) ->
+    nl_network_to_native(Rest, [C | Acc]);
+nl_network_to_native("", Acc) ->
+    lists:reverse(Acc).
+
+				    
+
+%% Convert native newline \n to network (cr,lf)
+nl_native_to_network(Input) ->
+    nl_native_to_network(Input, "").
+
+
+nl_native_to_network("\n" ++ Rest, Acc) ->
+    %% Here we put \r\n in reversed order.
+    %% It'll be put in correct order by the lists:reverse() call
+    %% in the last clause.
+    nl_native_to_network(Rest, [$\n, $\r | Acc]);
+nl_native_to_network([C | Rest], Acc) ->
+    nl_native_to_network(Rest, [C | Acc]);
+nl_native_to_network("", Acc) ->
+    lists:reverse(Acc).
