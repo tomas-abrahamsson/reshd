@@ -1,7 +1,7 @@
 ;;; resh.el -- emacs support for connecting to a reshd
 ;;;            (remote erlang shell daemon)
 ;;
-;; $Id: resh.el,v 1.5 2001-05-04 09:57:34 tab Exp $
+;; $Id: resh.el,v 1.6 2001-05-11 16:05:41 tab Exp $
 ;;
 ;; Author: Tomas Abrahamsson <tab@lysator.liu.se>
 
@@ -65,6 +65,12 @@
 
 (defvar resh-auto-install-enabled t
   "Whether resh should autoinstall upon call to resh")
+
+(defvar resh-current-process-name nil
+  "Buffer-local variable for name of current comint process")
+
+(defvar resh-current-process nil
+  "Buffer-local variable for current comint process")
 
 
 ;;;###autoload
@@ -134,6 +140,7 @@ editing control characters:
     (if (and (not (eq system-type 'windows-nt))
 	     (eq inferior-erlang-shell-type 'newshell))
 	(setq comint-process-echoes nil))
+    (setq comint-input-sender 'resh-simple-send)
 
     ;; Set buffer name and run erlang-shell-mode unless we are reconnecting
     (if reconnecting
@@ -145,9 +152,16 @@ editing control characters:
       ;; remember the host/port so we can reconnect.
       (make-variable-buffer-local 'resh-current-host)
       (make-variable-buffer-local 'resh-current-port)
+      (make-variable-buffer-local 'resh-current-process-name)
+      (make-variable-buffer-local 'resh-current-process)
       (setq resh-current-host host)
       (setq resh-current-port port)
+      (setq resh-current-process-name proc-name)
+      (setq resh-current-process erl-process)
       (erlang-shell-mode))))
+
+(defun resh-simple-send (proc string)
+  (comint-send-string proc (concat string "\r\n")))
 
 (defun resh-buffer-name (base host port)
   (let* ((host-port (concat host ":" (int-to-string port))))
@@ -163,6 +177,7 @@ editing control characters:
 (defun resh-set-inferior-erlang-buffer ()
   "Set current buffer to the inferior erlang buffer."
   (interactive)
+  (setq inferior-erlang-process resh-current-process)
   (setq inferior-erlang-buffer (current-buffer))
   (message "This buffer is now set to the current inferior erlang buffer"))
 
@@ -179,10 +194,10 @@ editing control characters:
 	(setq resh-is-installed t))))
 
 (defun resh-install-erl-keys ()
-  (local-set-key "\C-cc" 'resh-erlang))
+  (local-set-key "\C-cc" 'resh))
 
 (defun resh-install-erl-shell-keys ()
-  (local-set-key "\C-cc" 'resh-erlang)
+  (local-set-key "\C-cc" 'resh)
   (local-set-key "\C-cs" 'resh-set-inferior-erlang-buffer)
   ;; The reconnection is not fully working...
   ;;(local-set-key "\C-cr" 'resh-reconnect)
