@@ -16,7 +16,7 @@
 %%%----------------------------------------------------------------------
 -module(reshd).
 -author('tab@lysator.liu.se').
--rcs('$Id: reshd.erl,v 1.5 2001-05-04 09:57:48 tab Exp $').	% '
+-rcs('$Id: reshd.erl,v 1.6 2001-08-21 16:06:48 tab Exp $').	% '
 
 %% API
 -export([start/1, start/2]).
@@ -381,6 +381,8 @@ init_cont() ->
 
 print_prompt(ClientSocket, Prompt) ->
     PromptText = case Prompt of
+		     TxtAtom when atom(TxtAtom) ->
+			 atom_to_list(TxtAtom);
 		     {IoFun, PromptFmtStr, PromptArgs} ->
 			 io_lib:IoFun(PromptFmtStr, PromptArgs);
 		     {IoFun, PromptFmtStr} ->
@@ -420,12 +422,26 @@ nl_native_to_network("", Acc) ->
 
 
 loginfo(FmtStr, Args) ->
-    %% FIXME: Invent a way to log errors.
+    %% FIXME: Invent a way to log info.
     %% Can't use the error_log module since someone may
     %% add a log handler that does io:format. Then there
-    %% will be a deadlock, I think, if this is function
+    %% will be a deadlock, I think, if this function
     %% is called from within code that handles the client.
+
+    %% Txt = fmt(FmtStr, Args),
+    %% error_logger:info_msg("~s", [Txt]),
     fixme.
 logerror(FmtStr, Args) ->
     %% See loginfo/2.
+    %%Txt = fmt(FmtStr, Args),
+    %%error_logger:error_msg("~s", [Txt]),
     fixme.
+
+%%fmt(FmtStr, Args) ->
+%%    case catch io_lib:format(FmtStr, Args) of
+%%	  {'EXIT', Reason} ->
+%%	      lists:flatten(io_lib:format("Badly formatted text: ~p, ~p~n",
+%%					  [FmtStr, Args]));
+%%	  DeepText ->
+%%	      lists:flatten(DeepText)
+%%    end.
