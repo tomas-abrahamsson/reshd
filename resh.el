@@ -1,14 +1,14 @@
 ;;; resh.el -- emacs support for connecting to an reshd
 ;;;            (remote erlang shell daemon)
 ;;
-;; $Id: resh.el,v 1.1 2001-04-18 17:40:39 tab Exp $
+;; $Id: resh.el,v 1.2 2001-04-18 17:43:54 tab Exp $
 ;;
 ;; by Tomas Abrahamsson <epktoab@lmera.ericsson.se>
 ;;
 
 ;;; Code
 
-(requre 'erlang)
+(require 'erlang)
 
 (defvar resh-default-host "localhost"
   "*Default hostname for `resh-inferior-erlang'.")
