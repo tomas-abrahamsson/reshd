@@ -25,6 +25,10 @@ INSTALL_DATA = @INSTALL_DATA@
 tar=tar
 grep=grep
 sed=sed
+rm=rm
+ln=ln
+mkdir=mkdir
+tar=tar
 
 srcdir = @srcdir@
 VPATH = @srcdir@
@@ -101,10 +105,11 @@ dist: $(DISTFILES)
 	version=`$(grep) vsn reshd.pub | \
 		 $(sed) 's/^.*\([0-9][0-9]*\),\([0-9][0-9]*\).*$$/\1.\2/'`;\
 	distname=reshd-$$version; \
-	rm -rf $$distname; \
-	mkdir $$distname; \
+	$(rm) -rf $$distname; \
+	$(mkdir) $$distname; \
 	for file in $(DISTFILES); do \
-	  ln $$file $$distname/$$file; \
+	  $(ln) $$file $$distname/$$file; \
 	done; \
 	$(tar) -chz -f $$distname.tar.gz $$distname; \
-	rm -rf $$distname
+	$(tar) -chz -f $$distname.tgz $$distname; \
+	$(rm) -rf $$distname
