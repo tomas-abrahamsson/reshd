@@ -16,7 +16,7 @@
 %%%----------------------------------------------------------------------
 -module(reshd).
 -author('tab@lysator.liu.se').
--rcs('$Id: reshd.erl,v 1.6 2001-08-21 16:06:48 tab Exp $').	% '
+-rcs('$Id: reshd.erl,v 1.7 2001-12-20 12:47:52 tab Exp $').	% '
 
 %% API
 -export([start/1, start/2]).
@@ -293,7 +293,7 @@ handle_input(ClientSocket, State, Input) ->
 		{done, Result, []} ->
 		    #io_request{from = From,
 				reply_as = ReplyAs} = FirstReq,
-		    From ! {io_reply, ReplyAs, Result},
+		    io_reply(From, ReplyAs, Result),
 		    case length(RestReqs) of
 			0 ->
 			    {ok, idle};
@@ -306,7 +306,7 @@ handle_input(ClientSocket, State, Input) ->
 		{done, Result, RestChars} ->
 		    #io_request{from = From,
 				reply_as = ReplyAs} = FirstReq,
-		    From ! {io_reply, ReplyAs, Result},
+		    io_reply(From, ReplyAs, Result),
 		    case length(RestReqs) of
 			0 ->
 			    {ok, {pending_input, RestChars}};
@@ -322,7 +322,6 @@ handle_input(ClientSocket, State, Input) ->
 	    end
     end.
 
-
 %% Returns:
 %%   {ok, NewState} |
 %%   close
@@ -335,13 +334,13 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
 		   end,
 	    NWText = nl_native_to_network(lists:flatten(Text)),
 	    gen_tcp:send(ClientSocket, NWText),
-	    From ! {io_reply, ReplyAs, ok},
+	    io_reply(From, ReplyAs, ok),
 	    {ok, State};
 
 	{put_chars, Text} ->
 	    NWText = nl_native_to_network(lists:flatten(Text)),
 	    gen_tcp:send(ClientSocket, Text),
-	    From ! {io_reply, ReplyAs, ok},
+	    io_reply(From, ReplyAs, ok),
 	    {ok, State};
 
 	{get_until, Prompt, Mod, Fun, Args} ->
@@ -371,7 +370,7 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
 	UnexpectedIORequest ->
 	    loginfo("~p:handle_io_request: Unexpected IORequest:~p~n",
 		    [?MODULE, UnexpectedIORequest]),
-	    From ! {io_reply, ReplyAs, ok},
+	    io_reply(From, ReplyAs, ok),
 	    {ok, State}
     end.
     
@@ -379,14 +378,25 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
 init_cont() ->
     [].
 
+io_reply(From, ReplyAs, Result) ->
+    From ! {io_reply, ReplyAs, Result}.
+
 print_prompt(ClientSocket, Prompt) ->
     PromptText = case Prompt of
 		     TxtAtom when atom(TxtAtom) ->
-			 atom_to_list(TxtAtom);
+			 io_lib:format('~s', [TxtAtom]);
 		     {IoFun, PromptFmtStr, PromptArgs} ->
-			 io_lib:IoFun(PromptFmtStr, PromptArgs);
+			 case catch io_lib:IoFun(PromptFmtStr, PromptArgs) of
+			     {'EXIT',_} -> "???";
+			     T -> T
+			 end;
 		     {IoFun, PromptFmtStr} ->
-			 io_lib:IoFun(PromptFmtStr, [])
+			 case catch io_lib:IoFun(PromptFmtStr, []) of
+			     {'EXIT',_} -> "???";
+			     T -> T
+			 end;
+		     Term ->
+			 io_lib:write(Term)
 		 end,
     NWPromptText = nl_native_to_network(lists:flatten(PromptText)),
     gen_tcp:send(ClientSocket, NWPromptText).
@@ -414,7 +424,7 @@ nl_native_to_network("\n" ++ Rest, Acc) ->
     %% Here we put \r\n in reversed order.
     %% It'll be put in correct order by the lists:reverse() call
     %% in the last clause.
-    nl_native_to_network(Rest, [$\n, $\r | Acc]);
+    nl_native_to_network(Rest, lists:reverse("\r\n", Acc));
 nl_native_to_network([C | Rest], Acc) ->
     nl_native_to_network(Rest, [C | Acc]);
 nl_native_to_network("", Acc) ->
@@ -427,21 +437,20 @@ loginfo(FmtStr, Args) ->
     %% add a log handler that does io:format. Then there
     %% will be a deadlock, I think, if this function
     %% is called from within code that handles the client.
-
-    %% Txt = fmt(FmtStr, Args),
-    %% error_logger:info_msg("~s", [Txt]),
+    Txt = fmt(FmtStr, Args),
+    error_logger:info_msg("~s", [Txt]),
     fixme.
 logerror(FmtStr, Args) ->
     %% See loginfo/2.
-    %%Txt = fmt(FmtStr, Args),
-    %%error_logger:error_msg("~s", [Txt]),
+    Txt = fmt(FmtStr, Args),
+    error_logger:error_msg("~s", [Txt]),
     fixme.
 
-%%fmt(FmtStr, Args) ->
-%%    case catch io_lib:format(FmtStr, Args) of
-%%	  {'EXIT', Reason} ->
-%%	      lists:flatten(io_lib:format("Badly formatted text: ~p, ~p~n",
-%%					  [FmtStr, Args]));
-%%	  DeepText ->
-%%	      lists:flatten(DeepText)
-%%    end.
+fmt(FmtStr, Args) ->
+    case catch io_lib:format(FmtStr, Args) of
+	{'EXIT', Reason} ->
+	    lists:flatten(io_lib:format("Badly formatted text: ~p, ~p~n",
+					[FmtStr, Args]));
+	DeepText ->
+	    lists:flatten(DeepText)
+    end.
