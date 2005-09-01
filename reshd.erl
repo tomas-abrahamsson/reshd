@@ -16,7 +16,7 @@
 %%%----------------------------------------------------------------------
 -module(reshd).
 -author('tab@lysator.liu.se').
--rcs('$Id: reshd.erl,v 1.7 2001-12-20 12:47:52 tab Exp $').	% '
+-rcs('$Id: reshd.erl,v 1.8 2005-09-01 19:43:55 tab Exp $').	% '
 
 %% API
 -export([start/1, start/2]).
@@ -332,13 +332,13 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
 		      {'EXIT', Reason} -> "";
 		      Txt -> Txt
 		   end,
-	    NWText = nl_native_to_network(lists:flatten(Text)),
+	    NWText = nl_native_to_network(string_flatten(Text)),
 	    gen_tcp:send(ClientSocket, NWText),
 	    io_reply(From, ReplyAs, ok),
 	    {ok, State};
 
 	{put_chars, Text} ->
-	    NWText = nl_native_to_network(lists:flatten(Text)),
+	    NWText = nl_native_to_network(string_flatten(Text)),
 	    gen_tcp:send(ClientSocket, Text),
 	    io_reply(From, ReplyAs, ok),
 	    {ok, State};
@@ -398,7 +398,7 @@ print_prompt(ClientSocket, Prompt) ->
 		     Term ->
 			 io_lib:write(Term)
 		 end,
-    NWPromptText = nl_native_to_network(lists:flatten(PromptText)),
+    NWPromptText = nl_native_to_network(string_flatten(PromptText)),
     gen_tcp:send(ClientSocket, NWPromptText).
 
 %% Convert network newline (cr,lf) to native (\n)
@@ -449,8 +449,11 @@ logerror(FmtStr, Args) ->
 fmt(FmtStr, Args) ->
     case catch io_lib:format(FmtStr, Args) of
 	{'EXIT', Reason} ->
-	    lists:flatten(io_lib:format("Badly formatted text: ~p, ~p~n",
+	    string_flatten(io_lib:format("Badly formatted text: ~p, ~p~n",
 					[FmtStr, Args]));
 	DeepText ->
 	    lists:flatten(DeepText)
     end.
+
+string_flatten(IoList) ->
+    binary_to_list(list_to_binary([IoList])).
