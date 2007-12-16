@@ -16,14 +16,14 @@
 %%%----------------------------------------------------------------------
 -module(reshd).
 -author('tab@lysator.liu.se').
--rcs('$Id: reshd.erl,v 1.8 2005-09-01 19:43:55 tab Exp $').	% '
+-rcs('$Id: reshd.erl,v 1.9 2007-12-16 03:13:48 tab Exp $').	% '
 
 %% API
 -export([start/1, start/2]).
 -export([stop/1, stop/2]).
 -export([build_regname/1, build_regname/2]).
 
-%% exports due to spawns
+%% exports due to spawns/rpcs
 -export([server_init/3]).
 -export([clienthandler_init/3]).
 
@@ -92,10 +92,10 @@ build_regname(any, PortNumber) ->
     list_to_atom(Name);
 build_regname({IP1, IP2, IP3, IP4}, PortNumber) ->
     Name = atom_to_list(?MODULE) ++ "_" ++
-	list_to_integer(IP1) ++ "_" ++
-	list_to_integer(IP2) ++ "_" ++
-	list_to_integer(IP3) ++ "_" ++
-	list_to_integer(IP4) ++ "_" ++
+	integer_to_list(IP1) ++ "_" ++
+	integer_to_list(IP2) ++ "_" ++
+	integer_to_list(IP3) ++ "_" ++
+	integer_to_list(IP4) ++ "_" ++
 	"_" ++ integer_to_list(PortNumber),
     list_to_atom(Name);
 build_regname(HostNameOrIP, PortNumber) ->
@@ -111,7 +111,7 @@ build_regname(HostNameOrIP, PortNumber) ->
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
 server_start(IP, PortNumber) ->
-    Server = spawn(?MODULE, server_init, [self(), IP, PortNumber]),
+    Server = proc_lib:spawn(?MODULE, server_init, [self(), IP, PortNumber]),
     receive
 	{ok, UsedPortNumber} ->
 	    RegName = build_regname(IP, UsedPortNumber),
@@ -150,10 +150,10 @@ server_init(From, IP, PortNumber) ->
 
 ip_to_opt(any) ->
     [];
-ip_to_opt({IP1, IP2, IP3, IP4}=IPNumber) ->
+ip_to_opt({_IP1, _IP2, _IP3, _IP4}=IPNumber) ->
     [{ip, IPNumber}];
 ip_to_opt(HostNameOrIPAsString) ->
-    case inet:getaddr(HostNameOrIPAsString, inet) of
+    case simdiv:getaddr(HostNameOrIPAsString) of
 	{ok, IPNumber} ->
 	    [{ip, IPNumber}];
 	{error, Error} ->
@@ -181,7 +181,7 @@ server_loop(From, ServerSocket, Clients) ->
 		{client_stop, Client} ->
 		    RemainingClients = [C || C <- Clients, C /= Client],
 		    server_loop(From, ServerSocket, RemainingClients);
-		{'EXIT', Client, Reason} ->
+		{'EXIT', Client, _Reason} ->
 		    RemainingClients = [C || C <- Clients, C /= Client],
 		    server_loop(From, ServerSocket, RemainingClients);
 		Unexpected ->
@@ -203,7 +203,7 @@ server_loop(From, ServerSocket, Clients) ->
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
 clienthandler_start(From, Server, ClientSocket) ->
-    spawn_link(?MODULE, clienthandler_init, [From, Server, ClientSocket]).
+    proc_lib:spawn_link(?MODULE, clienthandler_init, [From, Server, ClientSocket]).
 
 -record(io_request,
 	{
@@ -213,7 +213,7 @@ clienthandler_start(From, Server, ClientSocket) ->
 	 }).
 	  
 
-clienthandler_init(From, Server, ClientSocket) ->
+clienthandler_init(_From, Server, ClientSocket) ->
     %% Announce ourself as group leader.
     %% This causes all calls to io:format(...) and such alike
     %% to send their output to us.
@@ -226,8 +226,16 @@ clienthandler_init(From, Server, ClientSocket) ->
     link(Reshd),
 
     %% Go ahead and take care of user input!
-    R = (catch clienthandler_loop(idle, Reshd, Server, ClientSocket)),
-    exit(Reshd, kill).
+    case catch clienthandler_loop(idle, Reshd, Server, ClientSocket) of
+	{'EXIT', Reason} ->
+	    %% This is not a very good way of relaying a crash, but it
+	    %% is the best we know
+	    exit(Reshd, kill),
+	    exit(Reason);
+	_ ->
+	    exit(Reshd, kill)
+    end.
+    
 
 clienthandler_loop(State, Reshd, Server, ClientSocket) ->
     receive
@@ -240,11 +248,11 @@ clienthandler_loop(State, Reshd, Server, ClientSocket) ->
 		    gen_tcp:close(ClientSocket)
 	    end;
 
-	{tcp_closed, Socket} ->
+	{tcp_closed, _Socket} ->
 	    Server ! {client_stop, self()},
 	    done;
 
-	{tcp_error, Socket, Reason} ->
+	{tcp_error, _Socket, _Reason} ->
 	    Server ! {client_stop, self()},
 	    done;
 
@@ -266,7 +274,7 @@ clienthandler_loop(State, Reshd, Server, ClientSocket) ->
 	{'EXIT', Reshd, _OtherReason} ->
 	    gen_tcp:close(ClientSocket);
 
-	Other ->
+	_Other ->
 	    clienthandler_loop(State, Reshd, Server, ClientSocket)
     end.
 
@@ -297,7 +305,7 @@ handle_input(ClientSocket, State, Input) ->
 		    case length(RestReqs) of
 			0 ->
 			    {ok, idle};
-			N ->
+			_N ->
 			    [#io_request{prompt = NextPrompt}|_] = RestReqs,
 			    print_prompt(ClientSocket, NextPrompt),
 			    InitCont = init_cont(),
@@ -310,7 +318,7 @@ handle_input(ClientSocket, State, Input) ->
 		    case length(RestReqs) of
 			0 ->
 			    {ok, {pending_input, RestChars}};
-			N ->
+			_N ->
 			    InitCont = init_cont(),
 			    TmpState = {pending_request, InitCont, RestReqs},
 			    handle_input(ClientSocket, RestChars, TmpState)
@@ -329,7 +337,7 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
     case IoRequest of
 	{put_chars, Mod, Fun, Args} ->
 	    Text = case catch apply(Mod, Fun, Args) of
-		      {'EXIT', Reason} -> "";
+		      {'EXIT', _Reason} -> "";
 		      Txt -> Txt
 		   end,
 	    NWText = nl_native_to_network(string_flatten(Text)),
@@ -339,7 +347,7 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
 
 	{put_chars, Text} ->
 	    NWText = nl_native_to_network(string_flatten(Text)),
-	    gen_tcp:send(ClientSocket, Text),
+	    gen_tcp:send(ClientSocket, NWText),
 	    io_reply(From, ReplyAs, ok),
 	    {ok, State};
 
@@ -367,6 +375,13 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
 		    handle_input(ClientSocket, TmpState, Input)
 	    end;
 
+	{get_geometry, _} ->
+	    io_reply(From, ReplyAs, {error,enotsup}),
+	    {ok, State};
+
+	{requests, IoReqests} ->
+	    handle_io_requests(ClientSocket, State, From, ReplyAs, IoReqests);
+
 	UnexpectedIORequest ->
 	    loginfo("~p:handle_io_request: Unexpected IORequest:~p~n",
 		    [?MODULE, UnexpectedIORequest]),
@@ -375,9 +390,24 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
     end.
     
 
+handle_io_requests(ClientSocket, State0, From, ReplyAs, [LastIoReq]) ->
+    handle_io_request(ClientSocket, State0, From, ReplyAs, LastIoReq);
+handle_io_requests(ClientSocket, State0, From, ReplyAs, [IoReq|Rest]) ->
+    case handle_io_request(ClientSocket, State0, none, ReplyAs, IoReq) of
+	{ok, State1} ->
+	    handle_io_requests(ClientSocket, State1, From, ReplyAs, Rest);
+	close ->
+	    close
+    end;
+handle_io_requests(_ClientSocket, State, _From, _ReplyAs, []) ->
+    {ok, State}.
+
+
 init_cont() ->
     [].
 
+io_reply(none, _ReplyAs, _Result) ->
+    ok;
 io_reply(From, ReplyAs, Result) ->
     From ! {io_reply, ReplyAs, Result}.
 
@@ -435,7 +465,7 @@ loginfo(FmtStr, Args) ->
     %% FIXME: Invent a way to log info.
     %% Can't use the error_log module since someone may
     %% add a log handler that does io:format. Then there
-    %% will be a deadlock, I think, if this function
+    %% will be a deadlock, I think, if this is function
     %% is called from within code that handles the client.
     Txt = fmt(FmtStr, Args),
     error_logger:info_msg("~s", [Txt]),
@@ -448,11 +478,11 @@ logerror(FmtStr, Args) ->
 
 fmt(FmtStr, Args) ->
     case catch io_lib:format(FmtStr, Args) of
-	{'EXIT', Reason} ->
+	{'EXIT', _Reason} ->
 	    string_flatten(io_lib:format("Badly formatted text: ~p, ~p~n",
 					[FmtStr, Args]));
 	DeepText ->
-	    lists:flatten(DeepText)
+	    string_flatten(DeepText)
     end.
 
 string_flatten(IoList) ->
