@@ -103,7 +103,8 @@ config.status: ${srcdir}/configure
 
 dist: $(DISTFILES)
 	version=`$(grep) vsn reshd.pub | \
-		 $(sed) 's/^.*\([0-9][0-9]*\),\([0-9][0-9]*\).*$$/\1.\2/'`;\
+		 $(sed) 's/^.*{\([0-9][,0-9]*\)}.*$$/\1/' | \
+		 $(sed) 's/,/./g'`;\
 	distname=reshd-$$version; \
 	$(rm) -rf $$distname; \
 	$(mkdir) $$distname; \
