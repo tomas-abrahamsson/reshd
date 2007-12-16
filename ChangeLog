@@ -1,8 +1,15 @@
+Dec 17 2007  Tomas Abrahamsson  <tab@lysator.liu.se>
+	
+	This is version 1.3.1
+
+	* reshd.erl: Fixed a reference to an undefined module. Now uses
+	inet:getaddr instead.
+
 Dec 16 2007  Tomas Abrahamsson  <tab@lysator.liu.se>
 	
 	This is version 1.3.
 
-	* reshsd.erl: Updated to work with Erlang/OTP R12B-0: handles
+	* reshd.erl: Updated to work with Erlang/OTP R12B-0: handles
 	io-requests get_geometry and requests.
 
 Jul 20 2002  Tomas Abrahamsson  <tab@lysator.liu.se>
