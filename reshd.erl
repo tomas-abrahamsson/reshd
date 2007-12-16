@@ -16,7 +16,7 @@
 %%%----------------------------------------------------------------------
 -module(reshd).
 -author('tab@lysator.liu.se').
--rcs('$Id: reshd.erl,v 1.9 2007-12-16 03:13:48 tab Exp $').	% '
+-rcs('$Id: reshd.erl,v 1.10 2007-12-16 22:28:24 tab Exp $').	% '
 
 %% API
 -export([start/1, start/2]).
@@ -150,16 +150,20 @@ server_init(From, IP, PortNumber) ->
 
 ip_to_opt(any) ->
     [];
-ip_to_opt({_IP1, _IP2, _IP3, _IP4}=IPNumber) ->
-    [{ip, IPNumber}];
-ip_to_opt(HostNameOrIPAsString) ->
-    case simdiv:getaddr(HostNameOrIPAsString) of
+ip_to_opt(HostNameOrIP) ->
+    case inet:getaddr(HostNameOrIP, inet) of
 	{ok, IPNumber} ->
 	    [{ip, IPNumber}];
-	{error, Error} ->
-	    loginfo("~p: IP lookup failed for ~p: ~p. Binding to any ip.",
-		    [?MODULE, HostNameOrIPAsString, Error]),
-	    []
+	{error, _Error} ->
+	    case inet:getaddr(HostNameOrIP, inet6) of
+		{ok, IP6Number} ->
+		    [{ip, IP6Number}];
+		{error, Error} ->
+		    loginfo("~p: IP lookup failed for ~p: ~p. "
+			    "Binding to any ip.",
+			    [?MODULE, HostNameOrIP, Error]),
+		    []
+	    end
     end.
 
 
