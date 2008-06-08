@@ -16,9 +16,10 @@
 %%%----------------------------------------------------------------------
 -module(reshd).
 -author('tab@lysator.liu.se').
--rcs('$Id: reshd.erl,v 1.10 2007-12-16 22:28:24 tab Exp $').	% '
+-rcs('$Id: reshd.erl,v 1.11 2008-06-08 02:01:17 tab Exp $').
 
 %% API
+-export([start_link/1, start_link/2]).
 -export([start/1, start/2]).
 -export([stop/1, stop/2]).
 -export([build_regname/1, build_regname/2]).
@@ -34,8 +35,10 @@
 %% ----------------------------------------------------------------------
 
 %% ----------------------------------------------------------------------
-%% start(PortNumber) -> {ok, UsedPortNumber} | {error, Reason}
+%% start(PortNumber)     -> {ok, UsedPortNumber} | {error, Reason}
 %% start(IP, PortNumber) -> {ok, UsedPortNumber} | {error, Reason}
+%% start_link(PortNumber)     -> {ok, UsedPortNumber} | {error, Reason}
+%% start_link(IP, PortNumber) -> {ok, UsedPortNumber} | {error, Reason}
 %%   Portnumber = UsedPortNumber = integer(0..65535)
 %%   IP = any | {Byte,Byte,Byte,Byte}
 %%   Byte = integer(0..255)
@@ -54,6 +57,10 @@
 %% locally registred under the name reshd_<IP>_<UsedPortNumber>.
 %% build_regname is used to build the name.
 %% ----------------------------------------------------------------------
+start_link(PortNumber) ->
+    start_link(any, PortNumber).
+start_link(IP, PortNumber) ->
+    server_start_link(IP, PortNumber).
 
 start(PortNumber) ->
     start(any, PortNumber).
@@ -110,6 +117,18 @@ build_regname(HostNameOrIP, PortNumber) ->
 %% Internal functions: the server part
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
+server_start_link(IP, PortNumber) ->
+    Server = spawn_link(?MODULE, server_init, [self(), IP, PortNumber]),
+    receive
+	{ok, UsedPortNumber} ->
+	    RegName = build_regname(IP, UsedPortNumber),
+	    register(RegName, Server),
+	    {ok, Server, UsedPortNumber};
+	{error, {Symptom, Diagnostics}} ->
+	    {error, {Symptom, Diagnostics}}
+    end.
+
+
 server_start(IP, PortNumber) ->
     Server = proc_lib:spawn(?MODULE, server_init, [self(), IP, PortNumber]),
     receive
@@ -127,7 +146,22 @@ server_stop(IP, PortNumber) ->
 	undefined ->
 	    do_nothing;
 	Pid ->
-	    Pid ! stop
+	    Mref = erlang:monitor(process,Pid),
+	    Pid ! stop,
+	    receive
+		{'EXIT', Pid, _What} ->
+		    receive
+			{'DOWN', Mref, _, _, _} -> true
+		    after 0 -> true
+		    end,
+		    ok;
+		{'DOWN', Mref, _, _, _} ->
+		    receive
+			{'EXIT', Pid, _What} -> true
+		    after 0 -> true
+		    end,
+		    ok
+	    end
     end.
 
 server_init(From, IP, PortNumber) ->
@@ -150,18 +184,20 @@ server_init(From, IP, PortNumber) ->
 
 ip_to_opt(any) ->
     [];
-ip_to_opt(HostNameOrIP) ->
-    case inet:getaddr(HostNameOrIP, inet) of
+ip_to_opt({_IP1, _IP2, _IP3, _IP4}=IPNumber) ->
+    [{ip, IPNumber}];
+ip_to_opt(HostNameOrIPAsString) ->
+    case inet:getaddr(HostNameOrIPAsString, inet) of
 	{ok, IPNumber} ->
 	    [{ip, IPNumber}];
 	{error, _Error} ->
-	    case inet:getaddr(HostNameOrIP, inet6) of
+	    case inet:getaddr(HostNameOrIPAsString, inet6) of
 		{ok, IP6Number} ->
 		    [{ip, IP6Number}];
 		{error, Error} ->
 		    loginfo("~p: IP lookup failed for ~p: ~p. "
 			    "Binding to any ip.",
-			    [?MODULE, HostNameOrIP, Error]),
+			    [?MODULE, HostNameOrIPAsString, Error]),
 		    []
 	    end
     end.
@@ -218,6 +254,11 @@ clienthandler_start(From, Server, ClientSocket) ->
 	  
 
 clienthandler_init(_From, Server, ClientSocket) ->
+    %% To protect against stupid stupid stupid routing or firewall or
+    %% other network equipment that is set to disconnect after being
+    %% idle a certain amount of time.
+    inet:setopts(ClientSocket, [{keepalive,true}]),
+
     %% Announce ourself as group leader.
     %% This causes all calls to io:format(...) and such alike
     %% to send their output to us.
@@ -464,6 +505,10 @@ nl_native_to_network([C | Rest], Acc) ->
 nl_native_to_network("", Acc) ->
     lists:reverse(Acc).
 
+
+%%%% ---------------------------------------------------------------------
+%%%% Auxiliary routines follow
+%%%% ---------------------------------------------------------------------
 
 loginfo(FmtStr, Args) ->
     %% FIXME: Invent a way to log info.
