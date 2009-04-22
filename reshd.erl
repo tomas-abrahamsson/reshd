@@ -16,7 +16,6 @@
 %%%----------------------------------------------------------------------
 -module(reshd).
 -author('tab@lysator.liu.se').
--rcs('$Id: reshd.erl,v 1.12 2008-06-08 02:13:12 tab Exp $').
 
 %% API
 -export([start_link/1, start_link/2]).

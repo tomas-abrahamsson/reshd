@@ -1,8 +1,6 @@
 ;;; resh.el -- emacs support for connecting to a reshd
 ;;;            (remote erlang shell daemon)
 ;;
-;; $Id: resh.el,v 1.7 2001-08-21 16:07:39 tab Exp $
-;;
 ;; Author: Tomas Abrahamsson <tab@lysator.liu.se>
 
 ;;; COPYRIGHT
