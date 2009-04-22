@@ -23,7 +23,12 @@
 -export([stop/1, stop/2]).
 -export([build_regname/1, build_regname/2]).
 
--record(config, {ip, port}).
+-export([format_error/1]).
+
+%% Imports (a few well known ones, for enhanced readability)
+-import(lists, [map/2]).
+
+-record(config, {ip, port, inet}).
 
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
@@ -42,9 +47,12 @@
 %% start_link(IP, PortNumber, Opts) -> LinkResult
 %%   Portnumber = UsedPortNumber = integer(0..65535)
 %%   Opts = [Opt]
-%%   Opt = {ip, IP}
-%%   IP = any | Ipv4Address
-%%   Byte = integer(0..255)
+%%   Opt = {ip, IP} | inet6
+%%   IP = any | Ipv4Address | Ipv6Address | string() | atom()
+%%      Ipv4Address = {Byte, Byte, Byte, Byte}
+%%      Ipv6Address = {UShort,UShort,UShort,UShort,UShort,UShort,UShort,UShort}
+%%      Byte   = integer(0..255)
+%%      UShort = integer(0..65535)
 %%   Result = {ok, UsedPortNumber} | {error, Reason}
 %%   LinkResult = {ok, ServerPid, UsedPortNumber} | {error, Reason}
 %%
@@ -88,7 +96,13 @@ set_port(PortNumber, Config) ->
     Config#config{port = PortNumber}.
 
 opts_to_config(Opts) ->
-      #config{ip = proplists:get_value(ip, Opts, any)}.
+      #config{ip   = proplists:get_value(ip, Opts, any),
+	      inet = get_inet_opt(Opts)}.
+
+get_inet_opt([inet | _])  -> inet;
+get_inet_opt([inet6 | _]) -> inet6;
+get_inet_opt([_ | T])     -> get_inet_opt(T);
+get_inet_opt([])          -> inet.
 
 %% ----------------------------------------------------------------------
 %% stop(PortNumber) -> void()
@@ -117,22 +131,31 @@ stop(IP, PortNumber) ->
 build_regname(PortNumber) ->
     build_regname(any, PortNumber).
 
-build_regname(any, PortNumber) ->
-    Name = atom_to_list(?MODULE) ++ "_any_" ++ integer_to_list(PortNumber),
-    list_to_atom(Name);
-build_regname({IP1, IP2, IP3, IP4}, PortNumber) ->
-    Name = atom_to_list(?MODULE) ++ "_" ++
-	integer_to_list(IP1) ++ "_" ++
-	integer_to_list(IP2) ++ "_" ++
-	integer_to_list(IP3) ++ "_" ++
-	integer_to_list(IP4) ++ "_" ++
-	"_" ++ integer_to_list(PortNumber),
-    list_to_atom(Name);
-build_regname(HostNameOrIP, PortNumber) ->
-    Name = atom_to_list(?MODULE) ++
-	"_" ++ HostNameOrIP ++ "_" ++
-	integer_to_list(PortNumber),
-    list_to_atom(Name).
+build_regname(IP, PortNumber) ->
+    list_to_atom(ff("~s_~s_~p", [?MODULE, hregname(IP), PortNumber])).
+
+hregname(IP) when is_tuple(IP) -> %% IPv4 | IPv6
+    string:join(map(fun integer_to_list/1, tuple_to_list(IP)), ".");
+hregname(IP) when is_atom(IP) ->
+    atom_to_list(IP);
+hregname(IP) when is_list(IP) ->
+    IP.
+
+%% ----------------------------------------------------------------------
+%% format_error(Error) -> string()
+%%    Error = {error, Reason} | Reason
+%% ----------------------------------------------------------------------
+format_error({error, Reason}) ->
+    format_error(Reason);
+format_error({listen_failed, {IP, Inet, Port, Reason}}) ->
+    ff("listen failed for port ~p on ~p ~p: ~s (~p)",
+       [Port, Inet, IP, inet:format_error(Reason), Reason]);
+format_error({ip_addr_lookup_failed, {HostOrAddr, Inet, Reason}}) ->
+    ff("failed to resolve ~p host or address ~p: ~s (~p)",
+       [Inet, HostOrAddr, inet:format_error(Reason), Reason]);
+format_error(Err) ->
+    ff("unknown error ~p", [Err]).
+
 
 
 %% ----------------------------------------------------------------------
@@ -140,10 +163,9 @@ build_regname(HostNameOrIP, PortNumber) ->
 %% Internal functions: the server part
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
-server_start_link(#config{ip   = IP,
-			  port = PortNumber}) ->
+server_start_link(#config{ip = IP} = Config) ->
     M = self(),
-    Server = proc_lib:spawn_link(fun() -> server_init(M, IP, PortNumber) end),
+    Server = proc_lib:spawn_link(fun() -> server_init(M, Config) end),
     receive
 	{ok, UsedPortNumber} ->
 	    RegName = build_regname(IP, UsedPortNumber),
@@ -154,10 +176,9 @@ server_start_link(#config{ip   = IP,
     end.
 
 
-server_start(#config{ip   = IP,
-		     port = PortNumber}) ->
+server_start(#config{ip = IP} = Config) ->
     M = self(),
-    Server = proc_lib:spawn(fun() -> server_init(M, IP, PortNumber) end),
+    Server = proc_lib:spawn(fun() -> server_init(M, Config) end),
     receive
 	{ok, UsedPortNumber} ->
 	    RegName = build_regname(IP, UsedPortNumber),
@@ -191,42 +212,40 @@ server_stop(IP, PortNumber) ->
 	    end
     end.
 
-server_init(From, IP, PortNumber) ->
-    IPOpt = ip_to_opt(IP),
-    ListenOpts = [list,
-		  {packet, 0},
-		  {active, true},		% this is the default
-		  {nodelay, true},
-		  {reuseaddr, true}] ++ IPOpt,
-    case gen_tcp:listen(PortNumber, ListenOpts) of
-	{ok, ServerSocket} ->
-	    {ok, UsedPortNumber} = inet:port(ServerSocket),
-	    From ! {ok, UsedPortNumber},
-	    process_flag(trap_exit, true),
-	    server_loop(From, ServerSocket);
-	{error, Reason} ->
-	    From ! {error, {listen_failed, Reason}}
+server_init(From, #config{ip   = IP,
+			  inet = Inet,
+			  port = Port} = Config) ->
+    case config_to_gen_tcp_opt(Config) of
+	{ok, GenTCPIPOpts} ->
+	    ListenOpts = [list,
+			  {packet, 0},
+			  {active, true},		% this is the default
+			  {nodelay, true},
+			  {reuseaddr, true}] ++ GenTCPIPOpts,
+	    case gen_tcp:listen(Port, ListenOpts) of
+		{ok, ServerSocket} ->
+		    {ok, UsedPort} = inet:port(ServerSocket),
+		    From ! {ok, UsedPort},
+		    process_flag(trap_exit, true),
+		    server_loop(From, ServerSocket);
+		{error, Reason} ->
+		    From ! {error, {listen_failed, {IP, Inet, Port, Reason}}}
+	    end;
+	{error, _Reason} = Err ->
+	    From ! Err
     end.
 
 
-ip_to_opt(any) ->
-    [];
-ip_to_opt({_IP1, _IP2, _IP3, _IP4}=IPNumber) ->
-    [{ip, IPNumber}];
-ip_to_opt(HostNameOrIPAsString) ->
-    case inet:getaddr(HostNameOrIPAsString, inet) of
-	{ok, IPNumber} ->
-	    [{ip, IPNumber}];
-	{error, _Error} ->
-	    case inet:getaddr(HostNameOrIPAsString, inet6) of
-		{ok, IP6Number} ->
-		    [{ip, IP6Number}];
-		{error, Error} ->
-		    loginfo("~p: IP lookup failed for ~p: ~p. "
-			    "Binding to any ip.",
-			    [?MODULE, HostNameOrIPAsString, Error]),
-		    []
-	    end
+config_to_gen_tcp_opt(#config{ip = any, inet = Inet}) ->
+    {ok, [Inet]};
+config_to_gen_tcp_opt(#config{ip = IP, inet = Inet}) when is_tuple(IP) ->
+    {ok, [{ip, IP}, Inet]};
+config_to_gen_tcp_opt(#config{ip = HostOrAddr, inet = Inet}) ->
+    case inet:getaddr(HostOrAddr, Inet) of
+	{ok, IP} ->
+	    {ok, [{ip, IP}, Inet]};
+	{error, Reason} ->
+	    {error, {ip_addr_lookup_failed, {HostOrAddr, Inet, Reason}}}
     end.
 
 
@@ -562,5 +581,9 @@ fmt(FmtStr, Args) ->
 	    string_flatten(DeepText)
     end.
 
+ff(F, A) -> string_flatten(f(F, A)).
+
+f(F, A) -> io_lib:format(F, A).
+
 string_flatten(IoList) ->
-    binary_to_list(list_to_binary([IoList])).
+    binary_to_list(iolist_to_binary(IoList)).
