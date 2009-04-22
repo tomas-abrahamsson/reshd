@@ -23,10 +23,6 @@
 -export([stop/1, stop/2]).
 -export([build_regname/1, build_regname/2]).
 
-%% exports due to spawns/rpcs
--export([server_init/3]).
--export([clienthandler_init/3]).
-
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
 %% API
@@ -117,7 +113,8 @@ build_regname(HostNameOrIP, PortNumber) ->
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
 server_start_link(IP, PortNumber) ->
-    Server = spawn_link(?MODULE, server_init, [self(), IP, PortNumber]),
+    M = self(),
+    Server = proc_lib:spawn_link(fun() -> server_init(M, IP, PortNumber) end),
     receive
 	{ok, UsedPortNumber} ->
 	    RegName = build_regname(IP, UsedPortNumber),
@@ -129,7 +126,8 @@ server_start_link(IP, PortNumber) ->
 
 
 server_start(IP, PortNumber) ->
-    Server = proc_lib:spawn(?MODULE, server_init, [self(), IP, PortNumber]),
+    M = self(),
+    Server = proc_lib:spawn(fun() -> server_init(M, IP, PortNumber) end),
     receive
 	{ok, UsedPortNumber} ->
 	    RegName = build_regname(IP, UsedPortNumber),
@@ -242,7 +240,8 @@ server_loop(From, ServerSocket, Clients) ->
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
 clienthandler_start(From, Server, ClientSocket) ->
-    proc_lib:spawn_link(?MODULE, clienthandler_init, [From, Server, ClientSocket]).
+    proc_lib:spawn_link(fun() -> clienthandler_init(From, Server, ClientSocket)
+			end).
 
 -record(io_request,
 	{
