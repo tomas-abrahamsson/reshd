@@ -25,6 +25,11 @@
 
 -export([format_error/1]).
 
+%% Useful when starting from the command line, e.g: -s reshd c_start 0
+-export([c_start/1]).
+-export([cr_start/1]).
+-export([cpl_start/1]).
+
 %% Imports (a few well known ones, for enhanced readability)
 -import(lists, [map/2]).
 
@@ -103,6 +108,57 @@ start(PortNumber, Opts) when is_list(Opts) ->
     server_start(set_port(PortNumber, opts_to_config(Opts))).
 start(IP, PortNumber, Opts) when is_list(Opts) ->
     server_start(set_port(PortNumber, opts_to_config([{ip,IP} | Opts]))).
+
+
+%% ----------------------------------------------------------------------
+%% c_start(Args)   -> Result
+%% cr_start(Args)  -> void()
+%% cpl_start(Args) -> void()
+%%   Result = See start/1,2,3
+%%
+%% Use c_start when starting silently from the command line,
+%% like this:     erl ... -s reshd c_start 12345
+%% or like this:  erl ... -s reshd c_start 127.0.0.1 12345
+%%
+%% The cr_start is like c_start, except it also prints the start
+%% result using io:format. This is useful if you use 0 for port number
+%% and want to know what port number was actually used, for example if
+%% you log the stdout to a file.
+%%
+%% The cpl_start is just like cr_start, except it issues a progress
+%% report with error_logger:info_report instead of io:format, for
+%% cases when the stdout goes to /dev/null, but the error_logger is
+%% directed to a file. See the documentation for the error_logger
+%% module adn the sasl application environment variables for more
+%% info. Example (the quoting is unix /bin/sh quoting):
+%%   erl -boot start_sasl \
+%%       -sasl sasl_error_logger '{file,"/tmp/some-log"}' \
+%%       ... \
+%%       -s reshd cpl_start 127.0.0.1 0 \
+%%       ...
+%% ----------------------------------------------------------------------
+
+c_start([PortNumberX]) ->
+    PortNumber = if is_atom(PortNumberX) -> %% -s reshd c_start 34000
+			 list_to_integer(atom_to_list(PortNumberX));
+		    is_list(PortNumberX) -> %% -run reshd c_start 34000
+			 list_to_integer(PortNumberX)
+		 end,
+    server_start(set_port(PortNumber, opts_to_config([])));
+c_start([IP, PortNumberX]) ->
+    PortNumber = if is_atom(PortNumberX) ->
+			 list_to_integer(atom_to_list(PortNumberX));
+		    is_list(PortNumberX) ->
+			 list_to_integer(PortNumberX)
+		 end,
+    server_start(set_port(PortNumber, opts_to_config([{ip,IP}]))).
+
+cr_start(Args) ->
+    io:format("reshd -> ~p~n", [catch c_start(Args)]).
+
+cpl_start(Args) ->
+    error_logger:info_report(
+      progress, [{reshd, {start_result, catch c_start(Args)}}]).
 
 
 set_port(PortNumber, Config) ->
