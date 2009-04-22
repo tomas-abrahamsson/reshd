@@ -47,7 +47,7 @@
 %% start_link(IP, PortNumber, Opts) -> LinkResult
 %%   Portnumber = UsedPortNumber = integer(0..65535)
 %%   Opts = [Opt]
-%%   Opt = {ip, IP} | inet6
+%%   Opt = {ip, IP} | inet | inet6
 %%   IP = any | Ipv4Address | Ipv6Address | string() | atom()
 %%      Ipv4Address = {Byte, Byte, Byte, Byte}
 %%      Ipv6Address = {UShort,UShort,UShort,UShort,UShort,UShort,UShort,UShort}
