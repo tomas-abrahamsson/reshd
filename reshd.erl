@@ -28,7 +28,10 @@
 %% Imports (a few well known ones, for enhanced readability)
 -import(lists, [map/2]).
 
--record(config, {ip, port, inet}).
+-record(config, {ip, port, inet, %% IP|Host, TCPPort and inet|inet6
+		 keepalive,      %% boolean() %% set tcp-option for clients
+		 echo		 %% boolean() %% set shell option
+		}).
 
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
@@ -47,7 +50,10 @@
 %% start_link(IP, PortNumber, Opts) -> LinkResult
 %%   Portnumber = UsedPortNumber = integer(0..65535)
 %%   Opts = [Opt]
-%%   Opt = {ip, IP} | inet | inet6
+%%   Opt = {ip, IP} |
+%%         inet | inet6 |             %% IPv4 or IPv6, default = inet (ie IPv4)
+%%         keepalive |                %% enable keepalive, default = false
+%%         {echo, boolean}            %% default = true
 %%   IP = any | Ipv4Address | Ipv6Address | string() | atom()
 %%      Ipv4Address = {Byte, Byte, Byte, Byte}
 %%      Ipv6Address = {UShort,UShort,UShort,UShort,UShort,UShort,UShort,UShort}
@@ -69,6 +75,13 @@
 %% The process that listens for and handles incoming connections is
 %% locally registred under the name reshd_<IP>_<UsedPortNumber>.
 %% build_regname is used to build the name.
+%%
+%% Use the option {echo,false} if you intend to connect using a windows
+%% telnet client.
+%%
+%% Use the option keepalive or {keepalive,true} e.g. if you clients
+%% connect via a firewall that silently drops idle connections and you
+%% don't want your connections to get dropped.
 %% ----------------------------------------------------------------------
 start_link(PortNumber) ->
     server_start_link(set_port(PortNumber, opts_to_config([]))).
@@ -96,8 +109,10 @@ set_port(PortNumber, Config) ->
     Config#config{port = PortNumber}.
 
 opts_to_config(Opts) ->
-      #config{ip   = proplists:get_value(ip, Opts, any),
-	      inet = get_inet_opt(Opts)}.
+      #config{ip        = proplists:get_value(ip, Opts, any),
+	      inet      = get_inet_opt(Opts),
+	      echo      = proplists:get_value(echo, Opts, true),
+	      keepalive = proplists:get_value(keepalive, Opts, false)}.
 
 get_inet_opt([inet | _])  -> inet;
 get_inet_opt([inet6 | _]) -> inet6;
@@ -227,7 +242,7 @@ server_init(From, #config{ip   = IP,
 		    {ok, UsedPort} = inet:port(ServerSocket),
 		    From ! {ok, UsedPort},
 		    process_flag(trap_exit, true),
-		    server_loop(From, ServerSocket);
+		    server_loop(From, ServerSocket, Config);
 		{error, Reason} ->
 		    From ! {error, {listen_failed, {IP, Inet, Port, Reason}}}
 	    end;
@@ -249,15 +264,16 @@ config_to_gen_tcp_opt(#config{ip = HostOrAddr, inet = Inet}) ->
     end.
 
 
-server_loop(From, ServerSocket) ->
-    server_loop(From, ServerSocket, []).
+server_loop(From, ServerSocket, Config) ->
+    server_loop(From, ServerSocket, Config, []).
 
-server_loop(From, ServerSocket, Clients) ->
+server_loop(From, ServerSocket, Config, Clients) ->
     case gen_tcp:accept(ServerSocket, 250) of
 	{ok, ClientSocket} ->
-	    ClientHandler = clienthandler_start(From, self(), ClientSocket),
+	    ClientHandler = clienthandler_start(From, self(), ClientSocket,
+						Config),
 	    gen_tcp:controlling_process(ClientSocket, ClientHandler),
-	    server_loop(From, ServerSocket, [ClientHandler | Clients]);
+	    server_loop(From, ServerSocket, Config, [ClientHandler | Clients]);
 	{error, timeout} ->
 	    %% Check for signals now and then
 	    receive
@@ -266,16 +282,16 @@ server_loop(From, ServerSocket, Clients) ->
 		    done;
 		{client_stop, Client} ->
 		    RemainingClients = [C || C <- Clients, C /= Client],
-		    server_loop(From, ServerSocket, RemainingClients);
+		    server_loop(From, ServerSocket, Config, RemainingClients);
 		{'EXIT', Client, _Reason} ->
 		    RemainingClients = [C || C <- Clients, C /= Client],
-		    server_loop(From, ServerSocket, RemainingClients);
+		    server_loop(From, ServerSocket, Config, RemainingClients);
 		Unexpected ->
 		    loginfo("~p:server_loop: unexpected message:~p",
 			    [?MODULE, Unexpected]),
-		    server_loop(From, ServerSocket, Clients)
+		    server_loop(From, ServerSocket, Config, Clients)
 	    after 0 ->
-		    server_loop(From, ServerSocket, Clients)
+		    server_loop(From, ServerSocket, Config, Clients)
 	    end;
 	{error, Reason} ->
 	    logerror("~p:server_loop: Error: accepting on ~p: ~p.",
@@ -288,9 +304,9 @@ server_loop(From, ServerSocket, Clients) ->
 %% The client handler part -- handles a user of the reshd.
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
-clienthandler_start(From, Server, ClientSocket) ->
-    proc_lib:spawn_link(fun() -> clienthandler_init(From, Server, ClientSocket)
-			end).
+clienthandler_start(From, Server, ClientSocket, Config) ->
+    proc_lib:spawn_link(
+      fun() -> clienthandler_init(From, Server, ClientSocket, Config) end).
 
 -record(io_request,
 	{
@@ -300,11 +316,12 @@ clienthandler_start(From, Server, ClientSocket) ->
 	 }).
 	  
 
-clienthandler_init(_From, Server, ClientSocket) ->
+clienthandler_init(_From, Server, ClientSocket,
+		   #config{keepalive = KeepAlive} = Config) ->
     %% To protect against stupid stupid stupid routing or firewall or
     %% other network equipment that is set to disconnect after being
     %% idle a certain amount of time.
-    inet:setopts(ClientSocket, [{keepalive,true}]),
+    inet:setopts(ClientSocket, [{keepalive,KeepAlive}]),
 
     %% Announce ourself as group leader.
     %% This causes all calls to io:format(...) and such alike
@@ -318,7 +335,7 @@ clienthandler_init(_From, Server, ClientSocket) ->
     link(Reshd),
 
     %% Go ahead and take care of user input!
-    case catch clienthandler_loop(idle, Reshd, Server, ClientSocket) of
+    case catch clienthandler_loop(idle, Reshd, Server, ClientSocket, Config) of
 	{'EXIT', Reason} ->
 	    %% This is not a very good way of relaying a crash, but it
 	    %% is the best we know
@@ -329,13 +346,14 @@ clienthandler_init(_From, Server, ClientSocket) ->
     end.
     
 
-clienthandler_loop(State, Reshd, Server, ClientSocket) ->
+clienthandler_loop(State, Reshd, Server, ClientSocket, Config) ->
     receive
 	{tcp, _Socket, Input} ->
 	    NativeInput = nl_network_to_native(Input),
-	    case handle_input(ClientSocket, State, NativeInput) of
+	    case handle_input(ClientSocket, State, NativeInput, Config) of
 		{ok, NewState} ->
-		    clienthandler_loop(NewState, Reshd, Server, ClientSocket);
+		    clienthandler_loop(NewState, Reshd, Server, ClientSocket,
+				       Config);
 		close ->
 		    gen_tcp:close(ClientSocket)
 	    end;
@@ -353,9 +371,11 @@ clienthandler_loop(State, Reshd, Server, ClientSocket) ->
 	    done;
 
 	{io_request, From, ReplyAs, Req} ->
-	    case handle_io_request(ClientSocket, State, From, ReplyAs, Req) of
+	    case handle_io_request(ClientSocket, State, From, ReplyAs, Req,
+				   Config) of
 		{ok, NewState} ->
-		    clienthandler_loop(NewState, Reshd, Server, ClientSocket);
+		    clienthandler_loop(NewState, Reshd, Server, ClientSocket,
+				       Config);
 		close ->
 		    gen_tcp:close(ClientSocket)
 	    end;
@@ -367,14 +387,14 @@ clienthandler_loop(State, Reshd, Server, ClientSocket) ->
 	    gen_tcp:close(ClientSocket);
 
 	_Other ->
-	    clienthandler_loop(State, Reshd, Server, ClientSocket)
+	    clienthandler_loop(State, Reshd, Server, ClientSocket, Config)
     end.
 
 
 %% Returns:
 %%   {ok, NewState} |
 %%   close
-handle_input(ClientSocket, State, Input) ->
+handle_input(ClientSocket, State, Input, Config) ->
     case State of
 	idle ->
 	    {ok, {pending_input, Input}};
@@ -388,7 +408,7 @@ handle_input(ClientSocket, State, Input) ->
 			args = Args} = FirstReq,
 	    case catch apply(Mod, Fun, [Cont, Input|Args]) of
 		{more, NewCont} ->
-		    print_prompt(ClientSocket, Prompt),
+		    print_prompt_if_echoon(ClientSocket, Prompt, Config),
 		    {ok, {pending_request, NewCont, Requests}};
 		{done, Result, []} ->
 		    #io_request{from = From,
@@ -399,7 +419,8 @@ handle_input(ClientSocket, State, Input) ->
 			    {ok, idle};
 			_N ->
 			    [#io_request{prompt = NextPrompt}|_] = RestReqs,
-			    print_prompt(ClientSocket, NextPrompt),
+			    print_prompt_if_echoon(ClientSocket, NextPrompt,
+						   Config),
 			    InitCont = init_cont(),
 			    {ok, {pending_request, InitCont, RestReqs}}
 		    end;
@@ -413,7 +434,8 @@ handle_input(ClientSocket, State, Input) ->
 			_N ->
 			    InitCont = init_cont(),
 			    TmpState = {pending_request, InitCont, RestReqs},
-			    handle_input(ClientSocket, RestChars, TmpState)
+			    handle_input(ClientSocket, RestChars, TmpState,
+					 Config)
 		    end;
 		Other ->
 		    logerror("~p:handle_input: Unexpected result: ~p~n",
@@ -425,7 +447,7 @@ handle_input(ClientSocket, State, Input) ->
 %% Returns:
 %%   {ok, NewState} |
 %%   close
-handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
+handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest, Config) ->
     case IoRequest of
 	{put_chars, Mod, Fun, Args} ->
 	    Text = case catch apply(Mod, Fun, Args) of
@@ -464,7 +486,7 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
 		{pending_input, Input} ->
 		    InitContinuation = init_cont(),
 		    TmpState = {pending_request, InitContinuation, [NewReq]},
-		    handle_input(ClientSocket, TmpState, Input)
+		    handle_input(ClientSocket, TmpState, Input, Config)
 	    end;
 
 	{get_geometry, _} ->
@@ -472,7 +494,8 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
 	    {ok, State};
 
 	{requests, IoReqests} ->
-	    handle_io_requests(ClientSocket, State, From, ReplyAs, IoReqests);
+	    handle_io_requests(ClientSocket, State, From, ReplyAs, IoReqests,
+			       Config);
 
 	UnexpectedIORequest ->
 	    loginfo("~p:handle_io_request: Unexpected IORequest:~p~n",
@@ -482,16 +505,16 @@ handle_io_request(ClientSocket, State, From, ReplyAs, IoRequest) ->
     end.
     
 
-handle_io_requests(ClientSocket, State0, From, ReplyAs, [LastIoReq]) ->
-    handle_io_request(ClientSocket, State0, From, ReplyAs, LastIoReq);
-handle_io_requests(ClientSocket, State0, From, ReplyAs, [IoReq|Rest]) ->
-    case handle_io_request(ClientSocket, State0, none, ReplyAs, IoReq) of
+handle_io_requests(ClientSocket, State0, From, ReplyAs, [LastIoReq], Config) ->
+    handle_io_request(ClientSocket, State0, From, ReplyAs, LastIoReq, Config);
+handle_io_requests(ClientSocket, State0, From, ReplyAs, [IoReq|Rest], Config)->
+    case handle_io_request(ClientSocket, State0, none, ReplyAs,IoReq,Config) of
 	{ok, State1} ->
-	    handle_io_requests(ClientSocket, State1, From, ReplyAs, Rest);
+	    handle_io_requests(ClientSocket, State1, From,ReplyAs,Rest,Config);
 	close ->
 	    close
     end;
-handle_io_requests(_ClientSocket, State, _From, _ReplyAs, []) ->
+handle_io_requests(_ClientSocket, State, _From, _ReplyAs, [], _Config) ->
     {ok, State}.
 
 
@@ -502,6 +525,11 @@ io_reply(none, _ReplyAs, _Result) ->
     ok;
 io_reply(From, ReplyAs, Result) ->
     From ! {io_reply, ReplyAs, Result}.
+
+print_prompt_if_echoon(ClientSocket, Prompt, #config{echo = true}) ->
+    print_prompt(ClientSocket, Prompt);
+print_prompt_if_echoon(_ClientSocket, _Prompt, _Config) ->
+    ok.
 
 print_prompt(ClientSocket, Prompt) ->
     PromptText = case Prompt of
