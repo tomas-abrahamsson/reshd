@@ -18,10 +18,12 @@
 -author('tab@lysator.liu.se').
 
 %% API
--export([start_link/1, start_link/2]).
--export([start/1, start/2]).
+-export([start_link/1, start_link/2, start_link/3]).
+-export([start/1, start/2, start/3]).
 -export([stop/1, stop/2]).
 -export([build_regname/1, build_regname/2]).
+
+-record(config, {ip, port}).
 
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
@@ -30,13 +32,21 @@
 %% ----------------------------------------------------------------------
 
 %% ----------------------------------------------------------------------
-%% start(PortNumber)     -> {ok, UsedPortNumber} | {error, Reason}
-%% start(IP, PortNumber) -> {ok, UsedPortNumber} | {error, Reason}
-%% start_link(PortNumber)     -> {ok, UsedPortNumber} | {error, Reason}
-%% start_link(IP, PortNumber) -> {ok, UsedPortNumber} | {error, Reason}
+%% start(PortNumber)                -> Result
+%% start(IP, PortNumber)            -> Result
+%% start(PortNumber, Opts)          -> Result
+%% start(IP, PortNumber, Opts)      -> Result
+%% start_link(PortNumber)           -> LinkResult
+%% start_link(IP, PortNumber)       -> LinkResult
+%% start_link(PortNumber, Opts)     -> LinkResult
+%% start_link(IP, PortNumber, Opts) -> LinkResult
 %%   Portnumber = UsedPortNumber = integer(0..65535)
-%%   IP = any | {Byte,Byte,Byte,Byte}
+%%   Opts = [Opt]
+%%   Opt = {ip, IP}
+%%   IP = any | Ipv4Address
 %%   Byte = integer(0..255)
+%%   Result = {ok, UsedPortNumber} | {error, Reason}
+%%   LinkResult = {ok, ServerPid, UsedPortNumber} | {error, Reason}
 %%
 %% Start the reshd server to listen for connections on TCP/IP port PortNumber.
 %%
@@ -53,14 +63,32 @@
 %% build_regname is used to build the name.
 %% ----------------------------------------------------------------------
 start_link(PortNumber) ->
-    start_link(any, PortNumber).
-start_link(IP, PortNumber) ->
-    server_start_link(IP, PortNumber).
+    server_start_link(set_port(PortNumber, opts_to_config([]))).
+
+start_link(IP, PortNumber) when is_integer(PortNumber) ->
+    server_start_link(set_port(PortNumber, opts_to_config([{ip,IP}])));
+start_link(PortNumber, Opts) when is_list(Opts) ->
+    server_start_link(set_port(PortNumber, opts_to_config(Opts))).
+
+start_link(IP, PortNumber, Opts) when is_list(Opts) ->
+    server_start_link(set_port(PortNumber, opts_to_config([{ip,IP} | Opts]))).
 
 start(PortNumber) ->
-    start(any, PortNumber).
-start(IP, PortNumber) ->
-    server_start(IP, PortNumber).
+    server_start(set_port(PortNumber, opts_to_config([]))).
+
+start(IP, PortNumber) when is_integer(PortNumber) ->
+    server_start(set_port(PortNumber, opts_to_config([{ip,IP}])));
+start(PortNumber, Opts) when is_list(Opts) ->
+    server_start(set_port(PortNumber, opts_to_config(Opts))).
+start(IP, PortNumber, Opts) when is_list(Opts) ->
+    server_start(set_port(PortNumber, opts_to_config([{ip,IP} | Opts]))).
+
+
+set_port(PortNumber, Config) ->
+    Config#config{port = PortNumber}.
+
+opts_to_config(Opts) ->
+      #config{ip = proplists:get_value(ip, Opts, any)}.
 
 %% ----------------------------------------------------------------------
 %% stop(PortNumber) -> void()
@@ -112,7 +140,8 @@ build_regname(HostNameOrIP, PortNumber) ->
 %% Internal functions: the server part
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
-server_start_link(IP, PortNumber) ->
+server_start_link(#config{ip   = IP,
+			  port = PortNumber}) ->
     M = self(),
     Server = proc_lib:spawn_link(fun() -> server_init(M, IP, PortNumber) end),
     receive
@@ -125,7 +154,8 @@ server_start_link(IP, PortNumber) ->
     end.
 
 
-server_start(IP, PortNumber) ->
+server_start(#config{ip   = IP,
+		     port = PortNumber}) ->
     M = self(),
     Server = proc_lib:spawn(fun() -> server_init(M, IP, PortNumber) end),
     receive
