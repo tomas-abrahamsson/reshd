@@ -35,7 +35,7 @@
 
 -record(config, {ip, port, inet, %% IP|Host, TCPPort and inet|inet6
 		 keepalive,      %% boolean() %% set tcp-option for clients
-		 echo,		 %% boolean() %% set shell option
+		 silent_cprompt, %% boolean() %% set shell option
 		 enc		 %% Encoding: unicode | latin1(?)
 		}).
 
@@ -59,7 +59,7 @@
 %%   Opt = {ip, IP} |
 %%         inet | inet6 |             %% IPv4 or IPv6, default = inet (ie IPv4)
 %%         keepalive |                %% enable keepalive, default = false
-%%         {echo, boolean}            %% default = true
+%%         {silent_cprompt, boolean}  %% default = false
 %%   IP = any | Ipv4Address | Ipv6Address | string() | atom()
 %%      Ipv4Address = {Byte, Byte, Byte, Byte}
 %%      Ipv6Address = {UShort,UShort,UShort,UShort,UShort,UShort,UShort,UShort}
@@ -82,8 +82,9 @@
 %% locally registred under the name reshd_<IP>_<UsedPortNumber>.
 %% build_regname is used to build the name.
 %%
-%% Use the option {echo,false} if you intend to connect using a windows
-%% telnet client.
+%% Use the option {silent_cprompt,true} if you intend to connect using
+%% a windows telnet client. This will turn off printing the
+%% (continuation) prompt on every input keystroke.
 %%
 %% Use the option keepalive or {keepalive,true} e.g. if you clients
 %% connect via a firewall that silently drops idle connections and you
@@ -166,11 +167,11 @@ set_port(PortNumber, Config) ->
     Config#config{port = PortNumber}.
 
 opts_to_config(Opts) ->
-      #config{ip        = proplists:get_value(ip, Opts, any),
-	      inet      = get_inet_opt(Opts),
-	      echo      = proplists:get_value(echo, Opts, true),
-	      keepalive = proplists:get_value(keepalive, Opts, false),
-	      enc       = proplists:get_value(enc, Opts, get_default_enc())}.
+      #config{ip             = proplists:get_value(ip, Opts, any),
+	      inet           = get_inet_opt(Opts),
+	      silent_cprompt = proplists:get_value(silent_cprompt, Opts, false),
+	      keepalive      = proplists:get_value(keepalive, Opts, false),
+	      enc            = proplists:get_value(enc,Opts,get_default_enc())}.
 
 get_inet_opt([inet | _])  -> inet;
 get_inet_opt([inet6 | _]) -> inet6;
@@ -489,7 +490,7 @@ handle_input(State, Input, Env) ->
 			args = Args} = FirstReq,
 	    case apply(Mod, Fun, [Cont, Input | Args]) of
 		{more, NewCont} ->
-		    print_prompt_if_echoon(ClientSocket, Prompt, Enc, Config),
+		    possibly_print_cprompt(ClientSocket, Prompt, Enc, Config),
 		    {ok, {pending_request, NewCont, Requests}, Env};
 		{done, Result, []} ->
 		    #io_request{from = From,
@@ -499,7 +500,7 @@ handle_input(State, Input, Env) ->
 			[] ->
 			    {ok, idle, Env};
 			[#io_request{prompt = NextPrompt, enc = Enc2} | _] ->
-			    print_prompt_if_echoon(ClientSocket, NextPrompt,
+			    possibly_print_cprompt(ClientSocket, NextPrompt,
 						   Enc2, Config),
 			    InitCont = init_cont(),
 			    {ok, {pending_request, InitCont, RestReqs}, Env}
@@ -676,13 +677,6 @@ convert_encoding(Text, InEnc, #config{enc=OutEnc}) ->
 	_                             -> <<>> %% What should we do??
     end.
 
-do_setopts([{echo,Echo} | Rest], Env = #env{config = Config}) ->
-    NewConfig = Config#config{echo = if Echo =:= true  -> true;
-					Echo =:= false -> false;
-					true           -> false % see group.erl
-				     end},
-    NewEnv = Env#env{config = NewConfig},
-    do_setopts(Rest, NewEnv);
 do_setopts([{encoding, Enc} | Rest], Env = #env{config = Config}) ->
     NewConfig = Config#config{enc = Enc},
     NewEnv = Env#env{config = NewConfig},
@@ -713,10 +707,10 @@ io_reply(none, _ReplyAs, _Result) ->
 io_reply(From, ReplyAs, Result) ->
     From ! {io_reply, ReplyAs, Result}.
 
-print_prompt_if_echoon(ClientSocket, Prompt, InEnc, Config) ->
-    if Config#config.echo == true ->
+possibly_print_cprompt(ClientSocket, Prompt, InEnc, Config) ->
+    if Config#config.silent_cprompt =:= false ->
 	    print_prompt(ClientSocket, Prompt, InEnc, Config);
-       Config#config.echo == false ->
+       Config#config.silent_cprompt =:= true ->
 	    ok
     end.
 
