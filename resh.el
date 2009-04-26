@@ -54,9 +54,11 @@
 
 (defvar resh-current-host nil
   "Buffer-local variable, used for reconnection.")
+(make-variable-buffer-local 'resh-current-host)
 
 (defvar resh-current-port nil
   "Buffer-local variable, used for reconnection.")
+(make-variable-buffer-local 'resh-current-port)
 
 (defvar resh-is-installed nil
   "Whether resh is installed or not.")
@@ -66,12 +68,15 @@
 
 (defvar resh-current-process-name nil
   "Buffer-local variable for name of current comint process.")
+(make-variable-buffer-local 'resh-current-process-name)
 
 (defvar resh-current-process nil
   "Buffer-local variable for current comint process.")
+(make-variable-buffer-local 'resh-current-process)
 
 (defvar resh-started-by-resh nil
   "Buffer-local variable for remembering who started this buffer.")
+(make-variable-buffer-local 'resh-started-by-resh)
 
 
 ;;;###autoload
@@ -151,11 +156,6 @@ editing control characters:
 	  (rename-buffer erl-buffer-name t)
 	(error (rename-buffer erl-buffer-name)))
       ;; remember the host/port so we can reconnect.
-      (make-variable-buffer-local 'resh-current-host)
-      (make-variable-buffer-local 'resh-current-port)
-      (make-variable-buffer-local 'resh-current-process-name)
-      (make-variable-buffer-local 'resh-current-process)
-      (make-variable-buffer-local 'resh-started-by-resh)
       (setq resh-current-host host)
       (setq resh-current-port port)
       (setq resh-current-process-name proc-name)
@@ -202,9 +202,6 @@ editing control characters:
 (defun resh-remember-state ()
   (if (not resh-started-by-resh)
       (progn
-	(make-variable-buffer-local 'resh-current-process-name)
-	(make-variable-buffer-local 'resh-current-process)
-	(make-variable-buffer-local 'resh-started-by-resh)
 	(setq resh-current-process-name inferior-erlang-process-name)
 	(setq resh-current-process inferior-erlang-process)
 	(setq resh-started-by-resh t))))
