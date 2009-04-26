@@ -1,5 +1,5 @@
 dnl Process this file with autoconf to produce a configure script.
-AC_INIT(resh.el reshd.erl)
+AC_INIT()
 
 AC_PROG_INSTALL()
 
