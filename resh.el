@@ -104,7 +104,7 @@ editing control characters:
 	  (remote-port-str (read-string port-prompt default-port port-hist))
 	  (remote-port (cond ((string= "" remote-port-str)
 			      (error "Not port number \"%s\"" remote-port-str))
-			     (t (string-to-int remote-port-str))))
+			     (t (string-to-number remote-port-str))))
 	  (buffer-prompt (concat init-prompt " "
 				 remote-host ":" remote-port-str
 				 ", buffer name: "))
