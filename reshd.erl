@@ -487,7 +487,7 @@ handle_input(State, Input, Env) ->
 			mod = Mod,
 			fn = Fun,
 			args = Args} = FirstReq,
-	    case catch apply(Mod, Fun, [Cont, Input|Args]) of
+	    case apply(Mod, Fun, [Cont, Input | Args]) of
 		{more, NewCont} ->
 		    print_prompt_if_echoon(ClientSocket, Prompt, Enc, Config),
 		    {ok, {pending_request, NewCont, Requests}, Env};
@@ -515,11 +515,7 @@ handle_input(State, Input, Env) ->
 			    InitCont = init_cont(),
 			    TmpState = {pending_request, InitCont, RestReqs},
 			    handle_input(RestChars, TmpState, Env)
-		    end;
-		Other ->
-		    logerror("~p:handle_input: Unexpected result: ~p~n",
-			     [?MODULE, Other]),
-		    close
+		    end
 	    end
     end.
 
@@ -553,30 +549,14 @@ handle_io_request(State, From, ReplyAs, IoRequest, Env) ->
 	    {ok, State, Env};
 
 	{get_until, Prompt, Mod, Fun, Args} ->
-	    Enc = latin1,
 	    NewReq = #io_request{prompt = Prompt,
-				 enc = Enc,
+				 enc = latin1,
 				 mod = Mod,
 				 fn = Fun,
 				 args = Args,
 				 from = From,
 				 reply_as = ReplyAs},
-	    case State of
-		{pending_request, Cont, PendingReqs} ->
-		    NewState = {pending_request, Cont, PendingReqs++[NewReq]},
-		    {ok, NewState, Env};
-
-		idle ->
-		    print_prompt(ClientSocket, Prompt, latin1, Config),
-		    InitContinuation = init_cont(),
-		    NewState = {pending_request, InitContinuation, [NewReq]},
-		    {ok, NewState, Env};
-
-		{pending_input, Input} ->
-		    InitContinuation = init_cont(),
-		    TmpState = {pending_request, InitContinuation, [NewReq]},
-		    handle_input(TmpState, Input, Env)
-	    end;
+	    do_get_until(NewReq, State, Env);
 
 	{get_until, Enc, Prompt, Mod, Fun, Args} ->
 	    NewReq = #io_request{prompt = Prompt,
@@ -586,22 +566,7 @@ handle_io_request(State, From, ReplyAs, IoRequest, Env) ->
 				 args = Args,
 				 from = From,
 				 reply_as = ReplyAs},
-	    case State of
-		{pending_request, Cont, PendingReqs} ->
-		    NewState = {pending_request, Cont, PendingReqs++[NewReq]},
-		    {ok, NewState, Env};
-
-		idle ->
-		    print_prompt(ClientSocket, Prompt, Enc, Config),
-		    InitContinuation = init_cont(),
-		    NewState = {pending_request, InitContinuation, [NewReq]},
-		    {ok, NewState, Env};
-
-		{pending_input, Input} ->
-		    InitContinuation = init_cont(),
-		    TmpState = {pending_request, InitContinuation, [NewReq]},
-		    handle_input(TmpState, Input, Env)
-	    end;
+	    do_get_until(NewReq, State, Env);
 
 	{get_geometry, _} ->
 	    io_reply(From, ReplyAs, {error,enotsup}),
@@ -615,6 +580,54 @@ handle_io_request(State, From, ReplyAs, IoRequest, Env) ->
 	{requests, IoReqests} ->
 	    handle_io_requests(State, From, ReplyAs, IoReqests, Env);
 
+	{get_password, _Prompt} ->
+	    io_reply(From, ReplyAs, {error,enotsup}),
+	    {ok, State, Env};
+
+	{get_password, _Enc, _Prompt} ->
+	    io_reply(From, ReplyAs, {error,enotsup}),
+	    {ok, State, Env};
+	    
+	{get_line, Prompt} ->
+	    NewReq = #io_request{prompt = Prompt,
+				 enc = latin1,
+				 mod = io_lib,
+				 fn = collect_line,
+				 args = [],
+				 from = From,
+				 reply_as = ReplyAs},
+	    do_get_until(NewReq, State, Env);
+
+	{get_line, Enc, Prompt} ->
+	    NewReq = #io_request{prompt = Prompt,
+				 enc = Enc,
+				 mod = io_lib,
+				 fn = collect_line,
+				 args = [],
+				 from = From,
+				 reply_as = ReplyAs},
+	    do_get_until(NewReq, State, Env);
+
+	{get_chars, Prompt, N} ->
+	    NewReq = #io_request{prompt = Prompt,
+				 enc = latin1,
+				 mod = io_lib,
+				 fn = collect_chars,
+				 args = [N],
+				 from = From,
+				 reply_as = ReplyAs},
+	    do_get_until(NewReq, State, Env);
+
+	{get_chars, Enc, Prompt, N} ->
+	    NewReq = #io_request{prompt = Prompt,
+				 enc = Enc,
+				 mod = io_lib,
+				 fn = collect_line,
+				 args = [N],
+				 from = From,
+				 reply_as = ReplyAs},
+	    do_get_until(NewReq, State, Env);
+
 	UnexpectedIORequest ->
 	    loginfo("~p:handle_io_request: Unexpected IORequest:~p~n",
 		    [?MODULE, UnexpectedIORequest]),
@@ -622,6 +635,7 @@ handle_io_request(State, From, ReplyAs, IoRequest, Env) ->
 	    {ok, State, Env}
     end.
     
+
 do_put_chars(ClientSocket, InEnc, Mod, Fun, Args, Config) ->
     Text = case catch apply(Mod, Fun, Args) of
 	       {'EXIT', _Reason} -> "";
@@ -630,6 +644,29 @@ do_put_chars(ClientSocket, InEnc, Mod, Fun, Args, Config) ->
     EncodedText = convert_encoding(Text, InEnc, Config),
     NWText = nl_native_to_network(EncodedText),
     gen_tcp:send(ClientSocket, NWText).
+
+do_get_until(NewReq, State, Env) ->
+    #env{csock  = ClientSocket,
+	 config = Config} = Env,
+    #io_request{prompt = Prompt} = NewReq,
+    case State of
+	{pending_request, Cont, PendingReqs} ->
+	    NewState = {pending_request, Cont, PendingReqs++[NewReq]},
+	    {ok, NewState, Env};
+
+	idle ->
+	    print_prompt(ClientSocket, Prompt, latin1, Config),
+	    InitContinuation = init_cont(),
+	    NewState = {pending_request, InitContinuation, [NewReq]},
+	    {ok, NewState, Env};
+
+	{pending_input, Input} ->
+	    InitContinuation = init_cont(),
+	    TmpState = {pending_request, InitContinuation, [NewReq]},
+	    handle_input(TmpState, Input, Env)
+    end.
+
+
 
 convert_encoding(Text, latin1, #config{enc=latin1}) -> %% possibly R12B
     iolist_to_binary(Text);
@@ -709,7 +746,6 @@ print_prompt(ClientSocket, Prompt, InEnc, Config) ->
 nl_network_to_native(Input) ->
     nl_network_to_native(Input, "").
 
-
 nl_network_to_native("\r\n" ++ Rest, Acc) ->
     nl_network_to_native(Rest, [$\n | Acc]);
 nl_network_to_native([C | Rest], Acc) ->
@@ -717,7 +753,6 @@ nl_network_to_native([C | Rest], Acc) ->
 nl_network_to_native("", Acc) ->
     reverse(Acc).
 
-				    
 
 %% Convert native newline \n to network (cr,lf)
 nl_native_to_network(<<$\n, Rest/binary>>) ->
@@ -726,8 +761,6 @@ nl_native_to_network(<<C, Rest/binary>>) ->
     <<C,(nl_native_to_network(Rest))/binary>>;
 nl_native_to_network(<<>>) ->
     <<>>.
-
-    
 
 
 %%%% ---------------------------------------------------------------------
