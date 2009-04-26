@@ -9,7 +9,9 @@ Apr 26 2009  Tomas Abrahamsson  <tab@lysator.liu.se>
 	  - for setting keepalive on the clientsocket
 	  - for setting silent c-prompt (if you connect from windows)
 	* Now also supports io:get_line and io:get_chars.
-
+	* New functions for making it easy to start reshd from the command
+	  line: c_start/1, cr_start/1, cpl_start/1.
+	
 Dec 17 2007  Tomas Abrahamsson  <tab@lysator.liu.se>
 	
 	This is version 1.3.1
