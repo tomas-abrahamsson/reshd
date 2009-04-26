@@ -44,7 +44,7 @@ OBJECTS = $(ERLANG_OBJECTS) $(ELISP_OBJECTS)
 
 DISTFILES = $(SOURCES) reshd.pub README license.txt \
         Makefile.in configure configure.in load-path.hack \
-	mkinstalldirs install-sh
+	mkinstalldirs install-sh ChangeLog
 
 SHELL = /bin/sh
 #.PHONY: all clean dist distclean install \
