@@ -3,4 +3,6 @@
 config.*
 configure
 *.tar.gz
+*.tgz
 Makefile
+autom4te.cache
