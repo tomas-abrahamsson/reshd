@@ -1,6 +1,6 @@
 %% This line tells emacs to use -*- erlang -*- mode for this file
 {name, "reshd"}.
-{vsn, {1,4}}.
+{vsn, {1,5}}.
 {summary, "Remote Erlang shell daemon"}.
 {author, "Tomas Abrahamsson", "tab@lysator.liu.se", "2001-may-04"}.
 {keywords, ["shell", "telnet"]}.
