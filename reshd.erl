@@ -715,25 +715,37 @@ possibly_print_cprompt(ClientSocket, Prompt, InEnc, Config) ->
     end.
 
 print_prompt(ClientSocket, Prompt, InEnc, Config) ->
-    PromptText = case Prompt of
-		     TxtAtom when is_atom(TxtAtom) ->
-			 io_lib:format('~s', [TxtAtom]);
-		     {IoFun, PromptFmtStr, PromptArgs} ->
-			 case catch io_lib:IoFun(PromptFmtStr, PromptArgs) of
-			     {'EXIT',_} -> "???";
-			     T -> T
-			 end;
-		     {IoFun, PromptFmtStr} ->
-			 case catch io_lib:IoFun(PromptFmtStr, []) of
-			     {'EXIT',_} -> "???";
-			     T -> T
-			 end;
-		     Term ->
-			 io_lib:write(Term)
-		 end,
+    PromptText = prompt_term_to_text(Prompt),
     NWPromptText = nl_native_to_network(
 		     convert_encoding(PromptText, InEnc, Config)),
     gen_tcp:send(ClientSocket, NWPromptText).
+
+
+prompt_term_to_text(Prompt) ->
+    %% io_lib:format is present in R12 and later, it seems.
+    case catch io_lib:format_prompt(Prompt) of
+	{'EXIT', {undef, _}} -> print_prompt_text_fallback(Prompt);
+	S when is_list(S)    -> S;
+	B when is_binary(B)  -> B
+    end.
+
+print_prompt_text_fallback(Prompt) -> %% R11 or earlier.
+    case Prompt of
+	TxtAtom when is_atom(TxtAtom) ->
+	    io_lib:format('~s', [TxtAtom]);
+	{IoFun, PromptFmtStr, PromptArgs} ->
+	    case catch io_lib:IoFun(PromptFmtStr, PromptArgs) of
+		{'EXIT',_} -> "???";
+		T -> T
+	    end;
+	{IoFun, PromptFmtStr} ->
+	    case catch io_lib:IoFun(PromptFmtStr, []) of
+		{'EXIT',_} -> "???";
+		T -> T
+	    end;
+	Term ->
+	    io_lib:write(Term)
+    end.
 
 
 %% Convert network newline (cr,lf) to native (\n)

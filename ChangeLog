@@ -1,5 +1,11 @@
+Oct 22 2009  Tomas Abrahamsson  <tab@lysator.liu.se>
+
+	This is version 1.5
+
+	* Prompts now looks good again on Erlang/OTP R13B-2
+
 Apr 26 2009  Tomas Abrahamsson  <tab@lysator.liu.se>
-	
+
 	This is version 1.4
 
 	* reshd.erl: News:
@@ -11,16 +17,16 @@ Apr 26 2009  Tomas Abrahamsson  <tab@lysator.liu.se>
 	* Now also supports io:get_line and io:get_chars.
 	* New functions for making it easy to start reshd from the command
 	  line: c_start/1, cr_start/1, cpl_start/1.
-	
+
 Dec 17 2007  Tomas Abrahamsson  <tab@lysator.liu.se>
-	
+
 	This is version 1.3.1
 
 	* reshd.erl: Fixed a reference to an undefined module. Now uses
 	inet:getaddr instead.
 
 Dec 16 2007  Tomas Abrahamsson  <tab@lysator.liu.se>
-	
+
 	This is version 1.3.
 
 	* reshd.erl: Updated to work with Erlang/OTP R12B-0: handles
@@ -43,11 +49,11 @@ Dec 20 2001  Tomas Abrahamsson  <tab@lysator.liu.se>
 	normal shell).
 
 Aug 21 2001  Tomas Abrahamsson  <tab@lysator.liu.se>
-	
+
 	* resh.el: Bugfixes for bugs related to setting the current erlang
 	buffer
 	* reshd.erl: Handles prompt being an atom
-	
+
 May 11 2001  Tomas Abrahamsson  <tab@lysator.liu.se>
 
 	* resh.el: Misc bugfixes
