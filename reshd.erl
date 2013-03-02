@@ -630,6 +630,10 @@ handle_io_request(State, From, ReplyAs, IoRequest, Env) ->
 				 reply_as = ReplyAs},
 	    do_get_until(NewReq, State, Env);
 
+	getopts ->
+	    io_reply(From, ReplyAs, [{encoding, Config#config.enc}]),
+	    {ok, State, Env};
+
 	UnexpectedIORequest ->
 	    loginfo("~p:handle_io_request: Unexpected IORequest:~p~n",
 		    [?MODULE, UnexpectedIORequest]),
