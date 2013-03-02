@@ -59,7 +59,8 @@
 %%   Opt = {ip, IP} |
 %%         inet | inet6 |             %% IPv4 or IPv6, default = inet (ie IPv4)
 %%         keepalive |                %% enable keepalive, default = false
-%%         {silent_cprompt, boolean}  %% default = false
+%%         {silent_cprompt, boolean}| %% default = false
+%%         {enc, unicode|latin1}      %% default = unicode on otp >= R13B
 %%   IP = any | Ipv4Address | Ipv6Address | string() | atom()
 %%      Ipv4Address = {Byte, Byte, Byte, Byte}
 %%      Ipv6Address = {UShort,UShort,UShort,UShort,UShort,UShort,UShort,UShort}
