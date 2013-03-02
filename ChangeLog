@@ -1,3 +1,10 @@
+Mar 02 2013  Tomas Abrahamsson  <tab@lysator.liu.se>
+
+	This is version 1.6
+
+	* Test with Erlang/OTP R16B, and fix an issue with getopts.
+	* Editorial change: convert tabs to spaces in reshd.erl
+
 Oct 22 2009  Tomas Abrahamsson  <tab@lysator.liu.se>
 
 	This is version 1.5
