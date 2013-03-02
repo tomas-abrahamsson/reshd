@@ -10,7 +10,7 @@
 %%% anything you like with them, including modifying them and selling
 %%% the binaries without source for ridiculous amounts of money without
 %%% saying who made them originally.
-%%% 
+%%%
 %%% However, I would be happy if you release your works with complete
 %%% source for free use.
 %%%----------------------------------------------------------------------
@@ -34,10 +34,10 @@
 -import(lists, [map/2, reverse/1, reverse/2]).
 
 -record(config, {ip, port, inet, %% IP|Host, TCPPort and inet|inet6
-		 keepalive,      %% boolean() %% set tcp-option for clients
-		 silent_cprompt, %% boolean() %% set shell option
-		 enc		 %% Encoding: unicode | latin1(?)
-		}).
+                 keepalive,      %% boolean() %% set tcp-option for clients
+                 silent_cprompt, %% boolean() %% set shell option
+                 enc             %% Encoding: unicode | latin1(?)
+                }).
 
 %% ----------------------------------------------------------------------
 %% ----------------------------------------------------------------------
@@ -143,17 +143,17 @@ start(IP, PortNumber, Opts) when is_list(Opts) ->
 
 c_start([PortNumberX]) ->
     PortNumber = if is_atom(PortNumberX) -> %% -s reshd c_start 34000
-			 list_to_integer(atom_to_list(PortNumberX));
-		    is_list(PortNumberX) -> %% -run reshd c_start 34000
-			 list_to_integer(PortNumberX)
-		 end,
+                         list_to_integer(atom_to_list(PortNumberX));
+                    is_list(PortNumberX) -> %% -run reshd c_start 34000
+                         list_to_integer(PortNumberX)
+                 end,
     server_start(set_port(PortNumber, opts_to_config([])));
 c_start([IP, PortNumberX]) ->
     PortNumber = if is_atom(PortNumberX) ->
-			 list_to_integer(atom_to_list(PortNumberX));
-		    is_list(PortNumberX) ->
-			 list_to_integer(PortNumberX)
-		 end,
+                         list_to_integer(atom_to_list(PortNumberX));
+                    is_list(PortNumberX) ->
+                         list_to_integer(PortNumberX)
+                 end,
     server_start(set_port(PortNumber, opts_to_config([{ip,IP}]))).
 
 cr_start(Args) ->
@@ -169,10 +169,10 @@ set_port(PortNumber, Config) ->
 
 opts_to_config(Opts) ->
       #config{ip             = proplists:get_value(ip, Opts, any),
-	      inet           = get_inet_opt(Opts),
-	      silent_cprompt = proplists:get_value(silent_cprompt, Opts, false),
-	      keepalive      = proplists:get_value(keepalive, Opts, false),
-	      enc            = proplists:get_value(enc,Opts,get_default_enc())}.
+              inet           = get_inet_opt(Opts),
+              silent_cprompt = proplists:get_value(silent_cprompt, Opts, false),
+              keepalive      = proplists:get_value(keepalive, Opts, false),
+              enc            = proplists:get_value(enc,Opts,get_default_enc())}.
 
 get_inet_opt([inet | _])  -> inet;
 get_inet_opt([inet6 | _]) -> inet6;
@@ -185,7 +185,7 @@ get_default_enc() ->
     if Vsn >= [5,7] -> unicode;
        true         -> latin1
     end.
-	    
+
 
 %% ----------------------------------------------------------------------
 %% stop(PortNumber) -> void()
@@ -193,8 +193,8 @@ get_default_enc() ->
 %%   Portnumber = UsedPortNumber = integer(0..65535)
 %%   IP = any | {Byte,Byte,Byte,Byte}
 %%   Byte = integer(0..255)
-%% 
-%% Stops the reshd server and any open connections associated to it. 
+%%
+%% Stops the reshd server and any open connections associated to it.
 %% ----------------------------------------------------------------------
 stop(PortNumber) ->
     stop(any, PortNumber).
@@ -208,7 +208,7 @@ stop(IP, PortNumber) ->
 %%   Portnumber = UsedPortNumber = integer(0..65535)
 %%   IP = any | {Byte,Byte,Byte,Byte}
 %%   Byte = integer(0..255)
-%% 
+%%
 %% Build a name under which the reshd server may be registered.
 %% ----------------------------------------------------------------------
 build_regname(PortNumber) ->
@@ -250,12 +250,12 @@ server_start_link(#config{ip = IP} = Config) ->
     M = self(),
     Server = proc_lib:spawn_link(fun() -> server_init(M, Config) end),
     receive
-	{ok, UsedPortNumber} ->
-	    RegName = build_regname(IP, UsedPortNumber),
-	    register(RegName, Server),
-	    {ok, Server, UsedPortNumber};
-	{error, {Symptom, Diagnostics}} ->
-	    {error, {Symptom, Diagnostics}}
+        {ok, UsedPortNumber} ->
+            RegName = build_regname(IP, UsedPortNumber),
+            register(RegName, Server),
+            {ok, Server, UsedPortNumber};
+        {error, {Symptom, Diagnostics}} ->
+            {error, {Symptom, Diagnostics}}
     end.
 
 
@@ -263,59 +263,59 @@ server_start(#config{ip = IP} = Config) ->
     M = self(),
     Server = proc_lib:spawn(fun() -> server_init(M, Config) end),
     receive
-	{ok, UsedPortNumber} ->
-	    RegName = build_regname(IP, UsedPortNumber),
-	    register(RegName, Server),
-	    {ok, UsedPortNumber};
-	{error, {Symptom, Diagnostics}} ->
-	    {error, {Symptom, Diagnostics}}
+        {ok, UsedPortNumber} ->
+            RegName = build_regname(IP, UsedPortNumber),
+            register(RegName, Server),
+            {ok, UsedPortNumber};
+        {error, {Symptom, Diagnostics}} ->
+            {error, {Symptom, Diagnostics}}
     end.
 
 server_stop(IP, PortNumber) ->
     RegName = build_regname(IP, PortNumber),
     case whereis(RegName) of
-	undefined ->
-	    do_nothing;
-	Pid ->
-	    Mref = erlang:monitor(process,Pid),
-	    Pid ! stop,
-	    receive
-		{'EXIT', Pid, _What} ->
-		    receive
-			{'DOWN', Mref, _, _, _} -> true
-		    after 0 -> true
-		    end,
-		    ok;
-		{'DOWN', Mref, _, _, _} ->
-		    receive
-			{'EXIT', Pid, _What} -> true
-		    after 0 -> true
-		    end,
-		    ok
-	    end
+        undefined ->
+            do_nothing;
+        Pid ->
+            Mref = erlang:monitor(process,Pid),
+            Pid ! stop,
+            receive
+                {'EXIT', Pid, _What} ->
+                    receive
+                        {'DOWN', Mref, _, _, _} -> true
+                    after 0 -> true
+                    end,
+                    ok;
+                {'DOWN', Mref, _, _, _} ->
+                    receive
+                        {'EXIT', Pid, _What} -> true
+                    after 0 -> true
+                    end,
+                    ok
+            end
     end.
 
 server_init(From, #config{ip   = IP,
-			  inet = Inet,
-			  port = Port} = Config) ->
+                          inet = Inet,
+                          port = Port} = Config) ->
     case config_to_gen_tcp_opt(Config) of
-	{ok, GenTCPIPOpts} ->
-	    ListenOpts = [list,
-			  {packet, 0},
-			  {active, true},		% this is the default
-			  {nodelay, true},
-			  {reuseaddr, true}] ++ GenTCPIPOpts,
-	    case gen_tcp:listen(Port, ListenOpts) of
-		{ok, ServerSocket} ->
-		    {ok, UsedPort} = inet:port(ServerSocket),
-		    From ! {ok, UsedPort},
-		    process_flag(trap_exit, true),
-		    server_loop(From, ServerSocket, Config);
-		{error, Reason} ->
-		    From ! {error, {listen_failed, {IP, Inet, Port, Reason}}}
-	    end;
-	{error, _Reason} = Err ->
-	    From ! Err
+        {ok, GenTCPIPOpts} ->
+            ListenOpts = [list,
+                          {packet, 0},
+                          {active, true},               % this is the default
+                          {nodelay, true},
+                          {reuseaddr, true}] ++ GenTCPIPOpts,
+            case gen_tcp:listen(Port, ListenOpts) of
+                {ok, ServerSocket} ->
+                    {ok, UsedPort} = inet:port(ServerSocket),
+                    From ! {ok, UsedPort},
+                    process_flag(trap_exit, true),
+                    server_loop(From, ServerSocket, Config);
+                {error, Reason} ->
+                    From ! {error, {listen_failed, {IP, Inet, Port, Reason}}}
+            end;
+        {error, _Reason} = Err ->
+            From ! Err
     end.
 
 
@@ -325,10 +325,10 @@ config_to_gen_tcp_opt(#config{ip = IP, inet = Inet}) when is_tuple(IP) ->
     {ok, [{ip, IP}, Inet]};
 config_to_gen_tcp_opt(#config{ip = HostOrAddr, inet = Inet}) ->
     case inet:getaddr(HostOrAddr, Inet) of
-	{ok, IP} ->
-	    {ok, [{ip, IP}, Inet]};
-	{error, Reason} ->
-	    {error, {ip_addr_lookup_failed, {HostOrAddr, Inet, Reason}}}
+        {ok, IP} ->
+            {ok, [{ip, IP}, Inet]};
+        {error, Reason} ->
+            {error, {ip_addr_lookup_failed, {HostOrAddr, Inet, Reason}}}
     end.
 
 
@@ -337,33 +337,33 @@ server_loop(From, ServerSocket, Config) ->
 
 server_loop(From, ServerSocket, Config, Clients) ->
     case gen_tcp:accept(ServerSocket, 250) of
-	{ok, ClientSocket} ->
-	    ClientHandler = clienthandler_start(From, self(), ClientSocket,
-						Config),
-	    gen_tcp:controlling_process(ClientSocket, ClientHandler),
-	    server_loop(From, ServerSocket, Config, [ClientHandler | Clients]);
-	{error, timeout} ->
-	    %% Check for signals now and then
-	    receive
-		stop ->
-		    lists:foreach(fun(Client) -> Client ! stop end, Clients),
-		    done;
-		{client_stop, Client} ->
-		    RemainingClients = [C || C <- Clients, C /= Client],
-		    server_loop(From, ServerSocket, Config, RemainingClients);
-		{'EXIT', Client, _Reason} ->
-		    RemainingClients = [C || C <- Clients, C /= Client],
-		    server_loop(From, ServerSocket, Config, RemainingClients);
-		Unexpected ->
-		    loginfo("~p:server_loop: unexpected message:~p",
-			    [?MODULE, Unexpected]),
-		    server_loop(From, ServerSocket, Config, Clients)
-	    after 0 ->
-		    server_loop(From, ServerSocket, Config, Clients)
-	    end;
-	{error, Reason} ->
-	    logerror("~p:server_loop: Error: accepting on ~p: ~p.",
-		     [?MODULE, ServerSocket, Reason])
+        {ok, ClientSocket} ->
+            ClientHandler = clienthandler_start(From, self(), ClientSocket,
+                                                Config),
+            gen_tcp:controlling_process(ClientSocket, ClientHandler),
+            server_loop(From, ServerSocket, Config, [ClientHandler | Clients]);
+        {error, timeout} ->
+            %% Check for signals now and then
+            receive
+                stop ->
+                    lists:foreach(fun(Client) -> Client ! stop end, Clients),
+                    done;
+                {client_stop, Client} ->
+                    RemainingClients = [C || C <- Clients, C /= Client],
+                    server_loop(From, ServerSocket, Config, RemainingClients);
+                {'EXIT', Client, _Reason} ->
+                    RemainingClients = [C || C <- Clients, C /= Client],
+                    server_loop(From, ServerSocket, Config, RemainingClients);
+                Unexpected ->
+                    loginfo("~p:server_loop: unexpected message:~p",
+                            [?MODULE, Unexpected]),
+                    server_loop(From, ServerSocket, Config, Clients)
+            after 0 ->
+                    server_loop(From, ServerSocket, Config, Clients)
+            end;
+        {error, Reason} ->
+            logerror("~p:server_loop: Error: accepting on ~p: ~p.",
+                     [?MODULE, ServerSocket, Reason])
     end.
 
 
@@ -377,22 +377,22 @@ clienthandler_start(From, Server, ClientSocket, Config) ->
       fun() -> clienthandler_init(From, Server, ClientSocket, Config) end).
 
 -record(io_request,
-	{
-	  prompt, enc,
-	  mod, fn, args,
-	  from, reply_as
-	 }).
-	  
+        {
+          prompt, enc,
+          mod, fn, args,
+          from, reply_as
+         }).
+
 -record(env,
-	{shell,
-	 server,
-	 csock,
-	 config
-	}).
+        {shell,
+         server,
+         csock,
+         config
+        }).
 
 
 clienthandler_init(_From, Server, ClientSocket,
-		   #config{keepalive = KeepAlive} = Config) ->
+                   #config{keepalive = KeepAlive} = Config) ->
     %% To protect against stupid stupid stupid routing or firewall or
     %% other network equipment that is set to disconnect after being
     %% idle a certain amount of time.
@@ -410,64 +410,64 @@ clienthandler_init(_From, Server, ClientSocket,
     link(Shell),
 
     Env = #env{shell  = Shell,
-	       server = Server,
-	       csock  = ClientSocket,
-	       config = Config},
+               server = Server,
+               csock  = ClientSocket,
+               config = Config},
 
     %% Go ahead and take care of user input!
     case catch clienthandler_loop(idle, Env) of
-	{'EXIT', Reason} ->
-	    %% This is not a very good way of relaying a crash, but it
-	    %% is the best we know
-	    exit(Shell, kill),
-	    exit(Reason);
-	_ ->
-	    exit(Shell, kill)
+        {'EXIT', Reason} ->
+            %% This is not a very good way of relaying a crash, but it
+            %% is the best we know
+            exit(Shell, kill),
+            exit(Reason);
+        _ ->
+            exit(Shell, kill)
     end.
-    
+
 
 clienthandler_loop(State, Env) ->
     #env{shell  = Shell,
-	 server = Server,
-	 csock  = ClientSocket} = Env,
+         server = Server,
+         csock  = ClientSocket} = Env,
     receive
-	{tcp, _Socket, Input} ->
-	    NativeInput = nl_network_to_native(Input),
-	    case handle_input(State, NativeInput, Env) of
-		{ok, NewState, NewEnv} ->
-		    clienthandler_loop(NewState, NewEnv);
-		close ->
-		    gen_tcp:close(ClientSocket)
-	    end;
+        {tcp, _Socket, Input} ->
+            NativeInput = nl_network_to_native(Input),
+            case handle_input(State, NativeInput, Env) of
+                {ok, NewState, NewEnv} ->
+                    clienthandler_loop(NewState, NewEnv);
+                close ->
+                    gen_tcp:close(ClientSocket)
+            end;
 
-	{tcp_closed, _Socket} ->
-	    Server ! {client_stop, self()},
-	    done;
+        {tcp_closed, _Socket} ->
+            Server ! {client_stop, self()},
+            done;
 
-	{tcp_error, _Socket, _Reason} ->
-	    Server ! {client_stop, self()},
-	    done;
+        {tcp_error, _Socket, _Reason} ->
+            Server ! {client_stop, self()},
+            done;
 
-	stop ->
-	    gen_tcp:close(ClientSocket),
-	    done;
+        stop ->
+            gen_tcp:close(ClientSocket),
+            done;
 
-	{io_request, From, ReplyAs, Req} ->
-	    case handle_io_request(State, From, ReplyAs, Req, Env) of
-		{ok, NewState, NewEnv} ->
-		    clienthandler_loop(NewState, NewEnv);
-		close ->
-		    gen_tcp:close(ClientSocket)
-	    end;
+        {io_request, From, ReplyAs, Req} ->
+            case handle_io_request(State, From, ReplyAs, Req, Env) of
+                {ok, NewState, NewEnv} ->
+                    clienthandler_loop(NewState, NewEnv);
+                close ->
+                    gen_tcp:close(ClientSocket)
+            end;
 
-	{'EXIT', Shell, normal} ->
-	    gen_tcp:close(ClientSocket);
+        {'EXIT', Shell, normal} ->
+            gen_tcp:close(ClientSocket);
 
-	{'EXIT', Shell, _OtherReason} ->
-	    gen_tcp:close(ClientSocket);
+        {'EXIT', Shell, _OtherReason} ->
+            gen_tcp:close(ClientSocket);
 
-	_Other ->
-	    clienthandler_loop(State, Env)
+        _Other ->
+            clienthandler_loop(State, Env)
     end.
 
 
@@ -476,49 +476,49 @@ clienthandler_loop(State, Env) ->
 %%   close
 handle_input(State, Input, Env) ->
     #env{csock  = ClientSocket,
-	 config = Config} = Env,
+         config = Config} = Env,
     case State of
-	idle ->
-	    {ok, {pending_input, Input}, Env};
-	{pending_input, PendingInput} ->
-	    NewInput = PendingInput ++ Input,
-	    {ok, {pending_input, NewInput}, Env};
-	{pending_request, Cont, [FirstReq | RestReqs] = Requests} ->
-	    #io_request{prompt = Prompt,
-			enc = Enc,
-			mod = Mod,
-			fn = Fun,
-			args = Args} = FirstReq,
-	    case apply(Mod, Fun, [Cont, Input | Args]) of
-		{more, NewCont} ->
-		    possibly_print_cprompt(ClientSocket, Prompt, Enc, Config),
-		    {ok, {pending_request, NewCont, Requests}, Env};
-		{done, Result, []} ->
-		    #io_request{from = From,
-				reply_as = ReplyAs} = FirstReq,
-		    io_reply(From, ReplyAs, Result),
-		    case RestReqs of
-			[] ->
-			    {ok, idle, Env};
-			[#io_request{prompt = NextPrompt, enc = Enc2} | _] ->
-			    possibly_print_cprompt(ClientSocket, NextPrompt,
-						   Enc2, Config),
-			    InitCont = init_cont(),
-			    {ok, {pending_request, InitCont, RestReqs}, Env}
-		    end;
-		{done, Result, RestChars} ->
-		    #io_request{from = From,
-				reply_as = ReplyAs} = FirstReq,
-		    io_reply(From, ReplyAs, Result),
-		    case length(RestReqs) of
-			0 ->
-			    {ok, {pending_input, RestChars}, Env};
-			_N ->
-			    InitCont = init_cont(),
-			    TmpState = {pending_request, InitCont, RestReqs},
-			    handle_input(RestChars, TmpState, Env)
-		    end
-	    end
+        idle ->
+            {ok, {pending_input, Input}, Env};
+        {pending_input, PendingInput} ->
+            NewInput = PendingInput ++ Input,
+            {ok, {pending_input, NewInput}, Env};
+        {pending_request, Cont, [FirstReq | RestReqs] = Requests} ->
+            #io_request{prompt = Prompt,
+                        enc = Enc,
+                        mod = Mod,
+                        fn = Fun,
+                        args = Args} = FirstReq,
+            case apply(Mod, Fun, [Cont, Input | Args]) of
+                {more, NewCont} ->
+                    possibly_print_cprompt(ClientSocket, Prompt, Enc, Config),
+                    {ok, {pending_request, NewCont, Requests}, Env};
+                {done, Result, []} ->
+                    #io_request{from = From,
+                                reply_as = ReplyAs} = FirstReq,
+                    io_reply(From, ReplyAs, Result),
+                    case RestReqs of
+                        [] ->
+                            {ok, idle, Env};
+                        [#io_request{prompt = NextPrompt, enc = Enc2} | _] ->
+                            possibly_print_cprompt(ClientSocket, NextPrompt,
+                                                   Enc2, Config),
+                            InitCont = init_cont(),
+                            {ok, {pending_request, InitCont, RestReqs}, Env}
+                    end;
+                {done, Result, RestChars} ->
+                    #io_request{from = From,
+                                reply_as = ReplyAs} = FirstReq,
+                    io_reply(From, ReplyAs, Result),
+                    case length(RestReqs) of
+                        0 ->
+                            {ok, {pending_input, RestChars}, Env};
+                        _N ->
+                            InitCont = init_cont(),
+                            TmpState = {pending_request, InitCont, RestReqs},
+                            handle_input(RestChars, TmpState, Env)
+                    end
+            end
     end.
 
 %% Returns:
@@ -526,150 +526,150 @@ handle_input(State, Input, Env) ->
 %%   close
 handle_io_request(State, From, ReplyAs, IoRequest, Env) ->
     #env{csock  = ClientSocket,
-	 config = Config} = Env,
+         config = Config} = Env,
     case IoRequest of
-	{put_chars, Mod, Fun, Args} ->
-	    do_put_chars(ClientSocket, latin1, Mod, Fun, Args, Config),
-	    io_reply(From, ReplyAs, ok),
-	    {ok, State, Env};
+        {put_chars, Mod, Fun, Args} ->
+            do_put_chars(ClientSocket, latin1, Mod, Fun, Args, Config),
+            io_reply(From, ReplyAs, ok),
+            {ok, State, Env};
 
-	{put_chars, Enc, Mod, Fun, Args} ->
-	    do_put_chars(ClientSocket, Enc, Mod, Fun, Args, Config),
-	    io_reply(From, ReplyAs, ok),
-	    {ok, State, Env};
+        {put_chars, Enc, Mod, Fun, Args} ->
+            do_put_chars(ClientSocket, Enc, Mod, Fun, Args, Config),
+            io_reply(From, ReplyAs, ok),
+            {ok, State, Env};
 
-	{put_chars, Txt} ->
-	    NWText = nl_native_to_network(convert_encoding(Txt,latin1,Config)),
-	    gen_tcp:send(ClientSocket, NWText),
-	    io_reply(From, ReplyAs, ok),
-	    {ok, State, Env};
+        {put_chars, Txt} ->
+            NWText = nl_native_to_network(convert_encoding(Txt,latin1,Config)),
+            gen_tcp:send(ClientSocket, NWText),
+            io_reply(From, ReplyAs, ok),
+            {ok, State, Env};
 
-	{put_chars, Enc, Txt} ->
-	    NWText = nl_native_to_network(convert_encoding(Txt, Enc, Config)),
-	    gen_tcp:send(ClientSocket, NWText),
-	    io_reply(From, ReplyAs, ok),
-	    {ok, State, Env};
+        {put_chars, Enc, Txt} ->
+            NWText = nl_native_to_network(convert_encoding(Txt, Enc, Config)),
+            gen_tcp:send(ClientSocket, NWText),
+            io_reply(From, ReplyAs, ok),
+            {ok, State, Env};
 
-	{get_until, Prompt, Mod, Fun, Args} ->
-	    NewReq = #io_request{prompt = Prompt,
-				 enc = latin1,
-				 mod = Mod,
-				 fn = Fun,
-				 args = Args,
-				 from = From,
-				 reply_as = ReplyAs},
-	    do_get_until(NewReq, State, Env);
+        {get_until, Prompt, Mod, Fun, Args} ->
+            NewReq = #io_request{prompt = Prompt,
+                                 enc = latin1,
+                                 mod = Mod,
+                                 fn = Fun,
+                                 args = Args,
+                                 from = From,
+                                 reply_as = ReplyAs},
+            do_get_until(NewReq, State, Env);
 
-	{get_until, Enc, Prompt, Mod, Fun, Args} ->
-	    NewReq = #io_request{prompt = Prompt,
-				 enc = Enc,
-				 mod = Mod,
-				 fn = Fun,
-				 args = Args,
-				 from = From,
-				 reply_as = ReplyAs},
-	    do_get_until(NewReq, State, Env);
+        {get_until, Enc, Prompt, Mod, Fun, Args} ->
+            NewReq = #io_request{prompt = Prompt,
+                                 enc = Enc,
+                                 mod = Mod,
+                                 fn = Fun,
+                                 args = Args,
+                                 from = From,
+                                 reply_as = ReplyAs},
+            do_get_until(NewReq, State, Env);
 
-	{get_geometry, _} ->
-	    io_reply(From, ReplyAs, {error,enotsup}),
-	    {ok, State, Env};
+        {get_geometry, _} ->
+            io_reply(From, ReplyAs, {error,enotsup}),
+            {ok, State, Env};
 
-	{setopts,NewOpts} ->
-	    {Result, NewEnv} = do_setopts(NewOpts, Env),
-	    io_reply(From, ReplyAs, Result),
-	    {ok, State, NewEnv};
+        {setopts,NewOpts} ->
+            {Result, NewEnv} = do_setopts(NewOpts, Env),
+            io_reply(From, ReplyAs, Result),
+            {ok, State, NewEnv};
 
-	{requests, IoReqests} ->
-	    handle_io_requests(State, From, ReplyAs, IoReqests, Env);
+        {requests, IoReqests} ->
+            handle_io_requests(State, From, ReplyAs, IoReqests, Env);
 
-	{get_password, _Prompt} ->
-	    io_reply(From, ReplyAs, {error,enotsup}),
-	    {ok, State, Env};
+        {get_password, _Prompt} ->
+            io_reply(From, ReplyAs, {error,enotsup}),
+            {ok, State, Env};
 
-	{get_password, _Enc, _Prompt} ->
-	    io_reply(From, ReplyAs, {error,enotsup}),
-	    {ok, State, Env};
-	    
-	{get_line, Prompt} ->
-	    NewReq = #io_request{prompt = Prompt,
-				 enc = latin1,
-				 mod = io_lib,
-				 fn = collect_line,
-				 args = [],
-				 from = From,
-				 reply_as = ReplyAs},
-	    do_get_until(NewReq, State, Env);
+        {get_password, _Enc, _Prompt} ->
+            io_reply(From, ReplyAs, {error,enotsup}),
+            {ok, State, Env};
 
-	{get_line, Enc, Prompt} ->
-	    NewReq = #io_request{prompt = Prompt,
-				 enc = Enc,
-				 mod = io_lib,
-				 fn = collect_line,
-				 args = [],
-				 from = From,
-				 reply_as = ReplyAs},
-	    do_get_until(NewReq, State, Env);
+        {get_line, Prompt} ->
+            NewReq = #io_request{prompt = Prompt,
+                                 enc = latin1,
+                                 mod = io_lib,
+                                 fn = collect_line,
+                                 args = [],
+                                 from = From,
+                                 reply_as = ReplyAs},
+            do_get_until(NewReq, State, Env);
 
-	{get_chars, Prompt, N} ->
-	    NewReq = #io_request{prompt = Prompt,
-				 enc = latin1,
-				 mod = io_lib,
-				 fn = collect_chars,
-				 args = [N],
-				 from = From,
-				 reply_as = ReplyAs},
-	    do_get_until(NewReq, State, Env);
+        {get_line, Enc, Prompt} ->
+            NewReq = #io_request{prompt = Prompt,
+                                 enc = Enc,
+                                 mod = io_lib,
+                                 fn = collect_line,
+                                 args = [],
+                                 from = From,
+                                 reply_as = ReplyAs},
+            do_get_until(NewReq, State, Env);
 
-	{get_chars, Enc, Prompt, N} ->
-	    NewReq = #io_request{prompt = Prompt,
-				 enc = Enc,
-				 mod = io_lib,
-				 fn = collect_line,
-				 args = [N],
-				 from = From,
-				 reply_as = ReplyAs},
-	    do_get_until(NewReq, State, Env);
+        {get_chars, Prompt, N} ->
+            NewReq = #io_request{prompt = Prompt,
+                                 enc = latin1,
+                                 mod = io_lib,
+                                 fn = collect_chars,
+                                 args = [N],
+                                 from = From,
+                                 reply_as = ReplyAs},
+            do_get_until(NewReq, State, Env);
 
-	getopts ->
-	    io_reply(From, ReplyAs, [{encoding, Config#config.enc}]),
-	    {ok, State, Env};
+        {get_chars, Enc, Prompt, N} ->
+            NewReq = #io_request{prompt = Prompt,
+                                 enc = Enc,
+                                 mod = io_lib,
+                                 fn = collect_line,
+                                 args = [N],
+                                 from = From,
+                                 reply_as = ReplyAs},
+            do_get_until(NewReq, State, Env);
 
-	UnexpectedIORequest ->
-	    loginfo("~p:handle_io_request: Unexpected IORequest:~p~n",
-		    [?MODULE, UnexpectedIORequest]),
-	    io_reply(From, ReplyAs, {error,enotsup}),
-	    {ok, State, Env}
+        getopts ->
+            io_reply(From, ReplyAs, [{encoding, Config#config.enc}]),
+            {ok, State, Env};
+
+        UnexpectedIORequest ->
+            loginfo("~p:handle_io_request: Unexpected IORequest:~p~n",
+                    [?MODULE, UnexpectedIORequest]),
+            io_reply(From, ReplyAs, {error,enotsup}),
+            {ok, State, Env}
     end.
-    
+
 
 do_put_chars(ClientSocket, InEnc, Mod, Fun, Args, Config) ->
     Text = case catch apply(Mod, Fun, Args) of
-	       {'EXIT', _Reason} -> "";
-	       Txt -> Txt
-	   end,
+               {'EXIT', _Reason} -> "";
+               Txt -> Txt
+           end,
     EncodedText = convert_encoding(Text, InEnc, Config),
     NWText = nl_native_to_network(EncodedText),
     gen_tcp:send(ClientSocket, NWText).
 
 do_get_until(NewReq, State, Env) ->
     #env{csock  = ClientSocket,
-	 config = Config} = Env,
+         config = Config} = Env,
     #io_request{prompt = Prompt} = NewReq,
     case State of
-	{pending_request, Cont, PendingReqs} ->
-	    NewState = {pending_request, Cont, PendingReqs++[NewReq]},
-	    {ok, NewState, Env};
+        {pending_request, Cont, PendingReqs} ->
+            NewState = {pending_request, Cont, PendingReqs++[NewReq]},
+            {ok, NewState, Env};
 
-	idle ->
-	    print_prompt(ClientSocket, Prompt, latin1, Config),
-	    InitContinuation = init_cont(),
-	    NewState = {pending_request, InitContinuation, [NewReq]},
-	    {ok, NewState, Env};
+        idle ->
+            print_prompt(ClientSocket, Prompt, latin1, Config),
+            InitContinuation = init_cont(),
+            NewState = {pending_request, InitContinuation, [NewReq]},
+            {ok, NewState, Env};
 
-	{pending_input, Input} ->
-	    InitContinuation = init_cont(),
-	    TmpState = {pending_request, InitContinuation, [NewReq]},
-	    handle_input(TmpState, Input, Env)
+        {pending_input, Input} ->
+            InitContinuation = init_cont(),
+            TmpState = {pending_request, InitContinuation, [NewReq]},
+            handle_input(TmpState, Input, Env)
     end.
 
 
@@ -678,8 +678,8 @@ convert_encoding(Text, latin1, #config{enc=latin1}) -> %% possibly R12B
     iolist_to_binary(Text);
 convert_encoding(Text, InEnc, #config{enc=OutEnc}) ->
     case unicode:characters_to_binary(Text, InEnc, OutEnc) of
-	Binary when is_binary(Binary) -> Binary;
-	_                             -> <<>> %% What should we do??
+        Binary when is_binary(Binary) -> Binary;
+        _                             -> <<>> %% What should we do??
     end.
 
 do_setopts([{encoding, Enc} | Rest], Env = #env{config = Config}) ->
@@ -695,10 +695,10 @@ handle_io_requests(State0, From, ReplyAs, [LastIoReq], Env) ->
     handle_io_request(State0, From, ReplyAs, LastIoReq, Env);
 handle_io_requests(State0, From, ReplyAs, [IoReq|Rest], Env)->
     case handle_io_request(State0, none, ReplyAs, IoReq, Env) of
-	{ok, State1, Env1} ->
-	    handle_io_requests(State1, From,ReplyAs,Rest, Env1);
-	close ->
-	    close
+        {ok, State1, Env1} ->
+            handle_io_requests(State1, From,ReplyAs,Rest, Env1);
+        close ->
+            close
     end;
 handle_io_requests(State, _From, _ReplyAs, [], Env) ->
     {ok, State, Env}.
@@ -714,42 +714,42 @@ io_reply(From, ReplyAs, Result) ->
 
 possibly_print_cprompt(ClientSocket, Prompt, InEnc, Config) ->
     if Config#config.silent_cprompt =:= false ->
-	    print_prompt(ClientSocket, Prompt, InEnc, Config);
+            print_prompt(ClientSocket, Prompt, InEnc, Config);
        Config#config.silent_cprompt =:= true ->
-	    ok
+            ok
     end.
 
 print_prompt(ClientSocket, Prompt, InEnc, Config) ->
     PromptText = prompt_term_to_text(Prompt),
     NWPromptText = nl_native_to_network(
-		     convert_encoding(PromptText, InEnc, Config)),
+                     convert_encoding(PromptText, InEnc, Config)),
     gen_tcp:send(ClientSocket, NWPromptText).
 
 
 prompt_term_to_text(Prompt) ->
     %% io_lib:format is present in R12 and later, it seems.
     case catch io_lib:format_prompt(Prompt) of
-	{'EXIT', {undef, _}} -> print_prompt_text_fallback(Prompt);
-	S when is_list(S)    -> S;
-	B when is_binary(B)  -> B
+        {'EXIT', {undef, _}} -> print_prompt_text_fallback(Prompt);
+        S when is_list(S)    -> S;
+        B when is_binary(B)  -> B
     end.
 
 print_prompt_text_fallback(Prompt) -> %% R11 or earlier.
     case Prompt of
-	TxtAtom when is_atom(TxtAtom) ->
-	    io_lib:format('~s', [TxtAtom]);
-	{IoFun, PromptFmtStr, PromptArgs} ->
-	    case catch io_lib:IoFun(PromptFmtStr, PromptArgs) of
-		{'EXIT',_} -> "???";
-		T -> T
-	    end;
-	{IoFun, PromptFmtStr} ->
-	    case catch io_lib:IoFun(PromptFmtStr, []) of
-		{'EXIT',_} -> "???";
-		T -> T
-	    end;
-	Term ->
-	    io_lib:write(Term)
+        TxtAtom when is_atom(TxtAtom) ->
+            io_lib:format('~s', [TxtAtom]);
+        {IoFun, PromptFmtStr, PromptArgs} ->
+            case catch io_lib:IoFun(PromptFmtStr, PromptArgs) of
+                {'EXIT',_} -> "???";
+                T -> T
+            end;
+        {IoFun, PromptFmtStr} ->
+            case catch io_lib:IoFun(PromptFmtStr, []) of
+                {'EXIT',_} -> "???";
+                T -> T
+            end;
+        Term ->
+            io_lib:write(Term)
     end.
 
 
@@ -795,11 +795,11 @@ logerror(FmtStr, Args) ->
 
 fmt(FmtStr, Args) ->
     case catch io_lib:format(FmtStr, Args) of
-	{'EXIT', _Reason} ->
-	    string_flatten(io_lib:format("Badly formatted text: ~p, ~p~n",
-					[FmtStr, Args]));
-	DeepText ->
-	    string_flatten(DeepText)
+        {'EXIT', _Reason} ->
+            string_flatten(io_lib:format("Badly formatted text: ~p, ~p~n",
+                                        [FmtStr, Args]));
+        DeepText ->
+            string_flatten(DeepText)
     end.
 
 ff(F, A) -> string_flatten(f(F, A)).
