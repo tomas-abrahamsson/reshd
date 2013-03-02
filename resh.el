@@ -185,6 +185,10 @@ editing control characters:
   (message "This buffer is now set to the current inferior erlang buffer"))
 
 
+(defmacro resh-addhook-once (hook fn)
+  (list 'if (list 'not (list 'member fn hook))
+	(list 'add-hook (list 'quote hook) fn)))
+
 ;;;###autoload
 (defun resh-install ()
   (interactive)
@@ -194,10 +198,6 @@ editing control characters:
 	(resh-addhook-once erlang-shell-mode-hook 'resh-install-erl-shell-keys)
 	(resh-addhook-once erlang-shell-mode-hook 'resh-remember-state)
 	)))
-
-(defmacro resh-addhook-once (hook fn)
-  (list 'if (list 'not (list 'member fn hook))
-	(list 'add-hook (list 'quote hook) fn)))
 
 (defun resh-remember-state ()
   (if (not resh-started-by-resh)
